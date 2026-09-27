@@ -1,0 +1,1749 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>KNX HVAC room simulator</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@62..125,300..800&display=swap" rel="stylesheet">
+<style>
+:root{
+  box-sizing:border-box;
+  padding-top:env(safe-area-inset-top,0px);
+  padding-bottom:env(safe-area-inset-bottom,0px);
+  --paper:#E9EDE7; --panel:#F6F7F3; --ink:#15232C; --ink2:#53636B; --rule:#C3CCC5;
+  --bus:#3C8C2A; --heat:#B3264A; --cool:#1B6FA3; --elec:#B07C07;
+  --wall:#D3D9D1; --slab:#D2CCBF; --room:#FBFCFA; --unit:#DCE2DB; --screen:#1E3340; --screenInk:#CFE9D6;
+  color-scheme:light;
+}
+@media (prefers-color-scheme:dark){
+  :root:not([data-theme="light"]){
+    --paper:#162330; --panel:#1D2D3B; --ink:#E3EAE5; --ink2:#9DB0B8; --rule:#34495A;
+    --bus:#6CBB51; --heat:#E35E80; --cool:#56A9DD; --elec:#E4B43C;
+    --wall:#2B3D4C; --slab:#3D3B35; --room:#1F2F3D; --unit:#2E4150; --screen:#0F1C24; --screenInk:#BFE5CA;
+    color-scheme:dark;
+  }
+}
+:root[data-theme="dark"]{
+  --paper:#162330; --panel:#1D2D3B; --ink:#E3EAE5; --ink2:#9DB0B8; --rule:#34495A;
+  --bus:#6CBB51; --heat:#E35E80; --cool:#56A9DD; --elec:#E4B43C;
+  --wall:#2B3D4C; --slab:#3D3B35; --room:#1F2F3D; --unit:#2E4150; --screen:#0F1C24; --screenInk:#BFE5CA;
+  color-scheme:dark;
+}
+html{scroll-padding-top:env(safe-area-inset-top,0px)}
+*,*::before,*::after{box-sizing:inherit}
+body{margin:0;background:var(--paper);color:var(--ink);
+  font-family:"Archivo",system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+  font-size:15px;line-height:1.45;font-variant-numeric:tabular-nums}
+button,select,input{font:inherit;color:inherit}
+:focus-visible{outline:2px solid var(--bus);outline-offset:2px}
+
+header{display:flex;flex-wrap:wrap;align-items:flex-end;gap:16px 32px;
+  padding:22px clamp(14px,3vw,36px) 14px;border-bottom:2px solid var(--ink)}
+header h1{margin:0;font-stretch:72%;font-weight:750;font-size:clamp(26px,3.4vw,40px);line-height:1.02;letter-spacing:-.01em}
+header p{margin:4px 0 0;color:var(--ink2);max-width:62ch}
+.clock{display:flex;align-items:flex-end;gap:14px}
+.clock .time{font-stretch:62%;font-weight:300;font-size:clamp(44px,6vw,68px);line-height:.9}
+.clock .day{color:var(--ink2);font-stretch:85%;line-height:1.2}
+.play{display:flex;flex-direction:column;gap:6px;align-items:flex-start}
+
+main{display:grid;gap:18px;padding:18px clamp(14px,3vw,36px) 40px;
+  grid-template-columns:minmax(0,1fr);
+  grid-template-areas:"glance" "story" "sch" "side" "trend" "energy" "gas" "mon"}
+@media (min-width:1080px){
+  main{grid-template-columns:minmax(340px,1fr) minmax(0,2fr);
+    grid-template-areas:"glance glance" "story story" "sch sch" "side trend" "side energy" "gas gas" "mon mon"}
+}
+section,aside{min-width:0}
+.panel{background:var(--panel);border:1px solid var(--rule);border-radius:4px;padding:16px 18px}
+h2{margin:0 0 10px;font-stretch:80%;font-weight:700;font-size:19px}
+h3{margin:14px 0 6px;font-stretch:85%;font-weight:650;font-size:15px}
+.note{color:var(--ink2);font-size:13px;margin:4px 0 0}
+
+#sch{grid-area:sch}
+.scroll{overflow-x:auto}
+.sinner{position:relative;min-width:760px;max-width:1120px;margin:0 auto}
+#scene{display:block;width:100%;height:auto}
+#sch .scroll{border-radius:6px;overflow-x:auto}
+.scard{position:absolute;top:12px;background:rgba(250,251,248,.8);-webkit-backdrop-filter:blur(8px);backdrop-filter:blur(8px);border:1px solid rgba(21,35,44,.12);border-radius:8px;padding:9px 13px;color:#15232C;box-shadow:0 4px 16px rgba(20,30,40,.12);font-size:12.5px;line-height:1.35}
+.scard b{display:block;font-stretch:66%;font-weight:500;font-size:30px;line-height:1.05}
+.scard .k{font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:#53636B;font-weight:650}
+.scard .pill{margin-top:4px}
+.scard.cl{left:12px}.scard.cr{right:12px;text-align:right}
+.dev.tx{filter:drop-shadow(0 0 4px #5FD13E) drop-shadow(0 0 2px #5FD13E)}
+.dev.rx{filter:drop-shadow(0 0 3px #7CE35A)}
+.ground{fill:color-mix(in srgb,var(--slab) 55%,var(--paper));stroke:var(--ink2);stroke-width:.8;stroke-opacity:.5}
+.tick{stroke:var(--ink2);stroke-width:1;opacity:.6}
+.cmp{font-size:14px;font-weight:700;fill:var(--ink);paint-order:stroke;stroke:var(--paper);stroke-width:3px}
+.sunpath{fill:none;stroke:#D9A62B;stroke-width:1.5;stroke-dasharray:3 5}
+.hourdot{fill:#D9A62B}
+.dv.t{fill:color-mix(in srgb,var(--unit),#fff 22%)} .dv.r{fill:var(--unit)} .dv.l{fill:color-mix(in srgb,var(--unit),#000 16%)}
+.wl.t{fill:color-mix(in srgb,var(--wall),#fff 18%)} .wl.r{fill:color-mix(in srgb,var(--wall),#000 6%)} .wl.l{fill:color-mix(in srgb,var(--wall),#000 14%)}
+.dv,.wl{stroke:var(--ink);stroke-width:.8;stroke-linejoin:round}
+.inE{fill:var(--wall);stroke:var(--ink);stroke-width:.9}
+.inS{fill:color-mix(in srgb,var(--wall),#000 8%);stroke:var(--ink);stroke-width:.9}
+.floor{fill:var(--slab);stroke:var(--ink);stroke-width:.9}
+.glass{fill:#8EC3E0;opacity:.32;stroke:var(--ink);stroke-width:.8}
+.ghost{fill:none;stroke:var(--ink2);stroke-width:1;stroke-dasharray:4 4}
+.dev.tx .dv{fill:color-mix(in srgb,var(--bus) 55%,var(--unit))}
+.dev.rx .dv{fill:color-mix(in srgb,var(--bus) 28%,var(--unit))}
+.leader{stroke:var(--ink2);stroke-width:.8}
+#scene .lbl,#scene .big,#scene .mid{paint-order:stroke;stroke:var(--paper);stroke-width:3px;stroke-linejoin:round}
+#side{grid-area:side;display:flex;flex-direction:column;gap:18px}
+#trend{grid-area:trend}
+#energy{grid-area:energy}
+#gas{grid-area:gas}
+#mon{grid-area:mon}
+
+/* SVG scene */
+.room{fill:var(--room)}
+.wall{fill:var(--wall);stroke:var(--ink);stroke-width:1.2}
+.hatch{stroke:var(--ink2);stroke-width:1;opacity:.35}
+.slab{fill:var(--slab);stroke:var(--ink);stroke-width:1.2}
+.ground{fill:var(--slab);opacity:.55}
+.glass{fill:#BFDCEB;stroke:var(--ink);stroke-width:1.2;opacity:.9}
+.unit{fill:var(--unit);stroke:var(--ink);stroke-width:1.4}
+.dev rect.body{fill:var(--unit);stroke:var(--ink);stroke-width:1.4;transition:fill .15s}
+.dev.tx rect.body{fill:color-mix(in srgb,var(--bus) 45%,var(--unit))}
+.dev.rx rect.body{fill:color-mix(in srgb,var(--bus) 22%,var(--unit))}
+.bus{stroke:var(--bus);stroke-width:3;fill:none}
+.busdrop{stroke:var(--bus);stroke-width:2;fill:none}
+.pulse{fill:var(--bus)}
+.lbl{font-size:11px;fill:var(--ink2);font-stretch:85%}
+.lbl.ink{fill:var(--ink)}
+.big{font-size:44px;font-weight:300;font-stretch:62%;fill:var(--ink)}
+.mid{font-size:20px;font-weight:500;font-stretch:70%;fill:var(--ink)}
+.pipe{fill:none;stroke-width:4;stroke-linecap:round}
+.ret{fill:none;stroke-width:4;stroke:var(--ink2);opacity:.45}
+.fanblade{fill:var(--ink2)}
+.wave{fill:none;stroke-width:2.2;stroke-linecap:round;stroke-dasharray:6 8}
+
+/* Thermostat device */
+.tstat{margin:0 auto;width:min(100%,300px);background:var(--unit);border:1.5px solid var(--ink);
+  border-radius:20px;padding:16px 16px 12px;box-shadow:0 2px 0 var(--rule)}
+.screen{background:var(--screen);color:var(--screenInk);border-radius:8px;padding:12px 14px 10px;min-height:150px}
+.screen .top{display:flex;justify-content:space-between;align-items:center;font-stretch:80%;font-size:14px}
+.screen .actual{font-stretch:62%;font-weight:300;font-size:64px;line-height:1;margin:4px 0 2px}
+.screen .actual small{font-size:22px;margin-left:2px}
+.screen .row{display:flex;justify-content:space-between;gap:8px;font-size:13px;font-stretch:85%;opacity:.95}
+.fanbars{display:inline-flex;gap:3px;align-items:flex-end;height:14px}
+.fanbars i{display:block;width:5px;background:currentColor;opacity:.25;border-radius:1px}
+.fanbars i:nth-child(1){height:5px}.fanbars i:nth-child(2){height:9px}.fanbars i:nth-child(3){height:13px}
+.fanbars i.on{opacity:1}
+.tbtns{display:grid;grid-template-columns:1fr 1.3fr 1fr;gap:8px;margin-top:12px}
+.tbtns button{border:1.5px solid var(--ink);background:var(--panel);border-radius:999px;padding:7px 0;cursor:pointer;font-weight:600}
+.tbtns button:active{transform:translateY(1px)}
+.tlabel{text-align:center;font-size:12px;color:var(--ink2);margin-top:8px}
+#tsIcon path{fill:currentColor}
+
+/* Controls */
+.ctl{display:grid;grid-template-columns:1fr auto;gap:2px 10px;align-items:center;margin:8px 0}
+.ctl label{font-size:13.5px}
+.ctl output{font-size:13.5px;font-weight:600;text-align:right;min-width:64px}
+.ctl input[type=range]{grid-column:1/-1;width:100%;accent-color:var(--bus);margin:2px 0}
+.ctl .hint{grid-column:1/-1;font-size:12px;color:var(--ink2)}
+.seg{display:flex;flex-wrap:wrap;gap:6px;margin:6px 0 4px}
+.seg button{border:1px solid var(--rule);background:transparent;border-radius:999px;padding:4px 11px;cursor:pointer;font-size:13px}
+.seg button[aria-pressed="true"]{background:var(--ink);color:var(--panel);border-color:var(--ink)}
+.toggle{display:flex;gap:8px;align-items:center;font-size:13.5px;margin:8px 0}
+.toggle input{accent-color:var(--bus);width:16px;height:16px}
+.presets{display:flex;flex-wrap:wrap;gap:6px}
+.presets button{border:1px dashed var(--ink2);background:transparent;border-radius:4px;padding:4px 10px;cursor:pointer;font-size:13px}
+
+/* Energy */
+.egrid{display:grid;gap:22px;grid-template-columns:minmax(0,1fr)}
+@media (min-width:900px){.egrid{grid-template-columns:minmax(0,1.1fr) minmax(0,.9fr) minmax(0,1.2fr)}}
+.bal{display:grid;grid-template-columns:auto minmax(80px,1fr) auto;gap:6px 10px;align-items:center;font-size:13.5px}
+.bar{position:relative;height:14px;border-left:1px solid transparent}
+.bar::before{content:"";position:absolute;left:50%;top:-3px;bottom:-3px;border-left:1px solid var(--ink2)}
+.bar span{position:absolute;top:0;bottom:0;border-radius:1px}
+.bal .v{text-align:right;font-weight:600;min-width:72px}
+.bal .net{font-weight:700;border-top:1px solid var(--rule);padding-top:6px}
+.kpis{display:grid;grid-template-columns:1fr 1fr;gap:12px 14px}
+.kpi b{display:block;font-stretch:70%;font-weight:500;font-size:28px;line-height:1.05}
+.kpi span{font-size:12.5px;color:var(--ink2)}
+.kpi.el b{color:var(--elec)}
+.calc{font-size:13px;margin:0 0 9px;line-height:1.5}
+.calc b{font-weight:650}
+.calc .r{color:var(--ink2)}
+
+/* Chart */
+.chartwrap{position:relative;height:250px}
+#chart{width:100%;height:100%;display:block}
+.legend{display:flex;flex-wrap:wrap;gap:6px 16px;font-size:12.5px;color:var(--ink2);margin-top:8px}
+.legend i{display:inline-block;width:18px;height:3px;vertical-align:middle;margin-right:6px;border-radius:2px}
+
+/* Tables */
+.tbl{overflow-x:auto;max-height:470px;overflow-y:auto;border-top:1px solid var(--rule)}
+table{border-collapse:collapse;width:100%;font-size:13px}
+th,td{text-align:left;padding:5px 8px;border-bottom:1px solid var(--rule);white-space:nowrap}
+th{position:sticky;top:0;background:var(--panel);font-weight:650;font-stretch:85%;z-index:1}
+td.ga{font-weight:650}
+td.val{font-weight:600}
+tr.hot td{background:color-mix(in srgb,var(--bus) 16%,transparent)}
+tr.grp td{background:color-mix(in srgb,var(--ink) 6%,transparent);font-weight:650;font-stretch:85%}
+.hex{letter-spacing:.04em;color:var(--ink2)}
+.monhead{display:flex;justify-content:space-between;align-items:baseline;gap:10px}
+.monhead button{border:1px solid var(--rule);background:transparent;border-radius:999px;padding:3px 11px;cursor:pointer;font-size:13px}
+.srcpill{font-size:12px;color:var(--ink2)}
+@media (prefers-reduced-motion:reduce){.dev rect.body{transition:none}}
+/* Demo polish */
+.eyebrow{margin:0 0 6px;font-size:12px;letter-spacing:.09em;text-transform:uppercase;color:var(--bus);font-weight:700}
+.hdr-right{margin-left:auto;display:flex;flex-direction:column;align-items:flex-end;gap:10px}
+.hdr-ctl{display:flex;gap:8px;align-items:center;flex-wrap:wrap;justify-content:flex-end}
+.ghostbtn{border:1px solid var(--rule);background:var(--panel);border-radius:999px;padding:5px 13px;cursor:pointer;font-size:13px}
+.ghostbtn:hover{border-color:var(--ink2)}
+.primbtn{border:1.5px solid var(--ink);background:var(--ink);color:var(--panel);border-radius:999px;padding:6px 18px;cursor:pointer;font-weight:650;font-size:13.5px}
+.cust .eng{display:none!important}
+#glance{grid-area:glance;display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:1px;background:var(--rule);border:1px solid var(--rule);border-radius:4px;overflow:hidden}
+#glance .g{background:var(--panel);padding:14px 18px 13px;display:flex;flex-direction:column;gap:3px;min-width:0}
+.gl{font-size:11.5px;letter-spacing:.07em;text-transform:uppercase;color:var(--ink2);font-weight:650}
+#glance b{font-stretch:68%;font-weight:500;font-size:34px;line-height:1.05}
+.gs{font-size:13px;color:var(--ink2);display:flex;gap:6px;align-items:center;flex-wrap:wrap}
+#glance .save b{color:var(--bus)}
+.pill{--c:var(--ink2);display:inline-block;border-radius:999px;padding:1px 9px;font-size:12px;font-weight:650;background:color-mix(in srgb,var(--c) 15%,transparent);color:var(--c)}
+#story{grid-area:story;display:grid;gap:12px;background:var(--panel);border:1px solid var(--rule);border-radius:4px;padding:14px 18px 0;overflow:hidden}
+.steps{display:flex;flex-wrap:wrap;gap:6px}
+.steps button{border:1px solid var(--rule);background:transparent;border-radius:999px;padding:4px 12px 4px 4px;cursor:pointer;font-size:13px;display:inline-flex;gap:7px;align-items:center}
+.steps button i{font-style:normal;width:21px;height:21px;border-radius:50%;display:inline-grid;place-items:center;background:var(--wall);font-size:11.5px;font-weight:700}
+.steps button[aria-pressed="true"]{border-color:var(--ink);background:var(--ink);color:var(--panel)}
+.steps button[aria-pressed="true"] i{background:var(--bus);color:#fff}
+.storyBody{display:flex;flex-wrap:wrap;gap:12px 28px;align-items:flex-end;justify-content:space-between}
+.stTxt{flex:1 1 440px;min-width:0}
+.stTxt h2{margin:0 0 4px;font-size:24px;text-wrap:balance}
+.stTxt p{margin:0;max-width:80ch;font-size:15.5px}
+.stCtl{display:flex;gap:8px;flex-wrap:wrap}
+.stProg{height:3px;margin:0 -18px;background:transparent}
+.stProg span{display:block;height:100%;width:0;background:var(--bus)}
+#sch{position:relative}
+.tip{position:absolute;z-index:5;width:max-content;max-width:min(320px,calc(100% - 16px));background:var(--panel);color:var(--ink);border:1px solid var(--ink);border-radius:4px;padding:10px 12px;font-size:12.5px;line-height:1.4;box-shadow:0 8px 22px rgba(0,0,0,.18);pointer-events:none}
+.tip .tt{font-weight:700;font-size:14px}
+.tip .pa{color:var(--ink2)}
+.tip p{margin:4px 0 6px;color:var(--ink2);white-space:normal}
+.tip table{font-size:12px;width:auto}
+.tip td{padding:2px 8px 2px 0;border:0;white-space:nowrap}
+.dev{cursor:pointer}
+.focusRing{fill:none;stroke:var(--bus);stroke-width:3;transform-box:fill-box;transform-origin:center;animation:ring 1.5s ease-out infinite}
+@keyframes ring{0%{transform:scale(.55);opacity:.95}100%{transform:scale(1.45);opacity:0}}
+@media (prefers-reduced-motion:reduce){.focusRing{animation:none;opacity:.85}}
+.scl{margin-top:10px}
+.legend i.sw{width:14px;height:10px;border-radius:2px;vertical-align:-1px}
+.sw.grad{background:linear-gradient(90deg,#1B6FA3,#B3264A)}
+.cust .egrid{grid-template-columns:repeat(auto-fit,minmax(min(320px,100%),1fr))}
+.kpi.sv b{color:var(--bus)}
+@media (max-width:640px){.hdr-right{margin-left:0;align-items:flex-start}.hdr-ctl{justify-content:flex-start}}
+</style>
+<div id="app" class="cust">
+<header>
+  <div>
+    <p class="eyebrow">KNX building automation</p>
+    <h1>Living room climate over KNX</h1>
+    <p>One air-to-water heat pump, an underfloor loop, a fan coil and a sun-tracking awning, all coordinated by a single KNX room controller.</p>
+  </div>
+  <div class="hdr-right">
+    <div class="clock">
+      <div class="time" id="clockTime">06:00</div>
+      <div class="play">
+        <div class="day" id="clockDay">January</div>
+        <div class="seg" id="speedSeg" role="group" aria-label="Simulation speed"></div>
+      </div>
+    </div>
+    <div class="hdr-ctl">
+      <div class="seg" id="viewSeg" role="group" aria-label="View"></div>
+      <button type="button" id="btnFull" class="ghostbtn">Full screen</button>
+    </div>
+  </div>
+</header>
+
+<main>
+  <section id="glance" aria-label="At a glance">
+    <div class="g"><span class="gl">Room now</span><b id="gRoom">–</b><span class="gs" id="gRoomS"></span></div>
+    <div class="g"><span class="gl">System</span><b id="gMode">–</b><span class="gs" id="gModeS"></span></div>
+    <div class="g"><span class="gl">Sun protection</span><b id="gSun">–</b><span class="gs" id="gSunS"></span></div>
+    <div class="g"><span class="gl">Electricity today</span><b id="gEl">–</b><span class="gs" id="gElS"></span></div>
+    <div class="g save"><span class="gl">Saving vs conventional</span><b id="gSave">–</b><span class="gs" id="gSaveS"></span></div>
+  </section>
+  <section id="story" aria-label="Guided tour">
+    <div class="steps" id="steps" role="group" aria-label="Tour scenes"></div>
+    <div class="storyBody">
+      <div class="stTxt" aria-live="polite"><h2 id="stTitle"></h2><p id="stText"></p></div>
+      <div class="stCtl">
+        <button type="button" id="stPrev" class="ghostbtn">‹ Previous</button>
+        <button type="button" id="stPlay" class="primbtn">Play the tour</button>
+        <button type="button" id="stNext" class="ghostbtn">Next ›</button>
+      </div>
+    </div>
+    <div class="stProg"><span id="stBar"></span></div>
+  </section>
+  <section id="sch" class="panel" aria-label="Room schematic">
+    <div id="tip" class="tip" hidden></div>
+    <div class="scroll">
+    <div class="sinner">
+    <svg id="scene" viewBox="0 0 1000 720" role="img" aria-label="Architectural model of the living room with heat pump, underfloor heating, fan coil vent, awning, window and the KNX bus"></svg>
+    <div class="scard cl"><div class="k">Outdoor</div><b id="scOut">–</b><div id="scSun"></div><div id="scWind"></div></div>
+    <div class="scard cr"><div class="k">Living room</div><b id="scRoom">–</b><div id="scMode"></div><span class="pill" id="scPill"></span></div>
+    </div>
+    </div>
+    <div class="legend scl">
+      <span><i class="sw" style="background:var(--bus)"></i>KNX bus, moving dots are telegrams</span>
+      <span><i class="sw grad"></i>Water, cold to warm</span>
+      <span><i class="sw" style="background:#F6D57A"></i>Direct sunlight</span>
+      <span><i class="sw" style="background:var(--cool)"></i>Heat going out</span>
+      <span><i class="sw" style="background:var(--heat)"></i>Heat coming in</span>
+      <span>Hover or tap a device for its details</span>
+    </div>
+  </section>
+
+  <aside id="side">
+    <div class="panel">
+      <h2>Room controller</h2>
+      <div class="tstat">
+        <div class="screen" aria-live="off">
+          <div class="top">
+            <span id="tsModeTxt">Comfort</span>
+            <svg id="tsIcon" width="18" height="18" viewBox="0 0 24 24" aria-hidden="true">
+              <path id="icFlame" d="M12 2c1 4 5 6 5 11a5 5 0 0 1-10 0c0-2 1-3.5 2-4.5 0 2 1 3 2 3-1-3 0-6 1-9.5z"/>
+              <path id="icSnow" d="M11 2h2v6.3l3.5-2 1 1.7L14 10l3.5 2-1 1.7-3.5-2V18h-2v-6.3l-3.5 2-1-1.7L10 10 6.5 8l1-1.7 3.5 2z" style="display:none"/>
+            </svg>
+          </div>
+          <div class="actual"><span id="tsActual">20.0</span><small>°C</small></div>
+          <div class="row"><span>Setpoint <b id="tsSet">21.0 °C</b></span><span id="tsShift">shift 0.0 K</span></div>
+          <div class="row" style="margin-top:4px"><span>Floor valve <b id="tsValve">0%</b></span><span>Fan <span class="fanbars" id="tsFan"><i></i><i></i><i></i></span></span></div>
+        </div>
+        <div class="tbtns">
+          <button id="btnMinus" aria-label="Lower setpoint by 0.5 K">−</button>
+          <button id="btnMode">Mode</button>
+          <button id="btnPlus" aria-label="Raise setpoint by 0.5 K">+</button>
+        </div>
+        <div class="tlabel eng">Buttons send on 1/0/2 and 1/0/4</div>
+      </div>
+    </div>
+
+    <div class="panel" id="controls">
+      <h2>Controls</h2>
+      <div class="ctl">
+        <label for="tod">Time of day</label><output id="todOut">06:00</output>
+        <input type="range" id="tod" min="0" max="23.75" step="0.25" value="6">
+      </div>
+      <div class="toggle"><button id="btnPlay" class="seg-btn" style="border:1.5px solid var(--ink);background:var(--ink);color:var(--panel);border-radius:999px;padding:5px 16px;cursor:pointer">Pause</button><span class="note" style="margin:0">Drag the time to jump; the room keeps its state.</span></div>
+      <div class="eng">
+      <h3>Climate presets</h3>
+      <div class="presets" id="presets"></div>
+      <div id="sliders"></div>
+      </div>
+      <h3>Window</h3>
+      <div class="seg" id="winSeg" role="group" aria-label="Window position"></div>
+      <div class="ctl"><label for="winW">Window width</label><output id="o_winW"></output><input type="range" id="winW" min="1" max="3.5" step="0.1"></div>
+      <div class="ctl"><label for="winH">Window height</label><output id="o_winH"></output><input type="range" id="winH" min="0.9" max="2.2" step="0.1"></div>
+      <div class="seg" id="glzSeg" role="group" aria-label="Glazing"></div>
+      <p class="note" id="winNote"></p>
+      <h3>Sun protection mode</h3>
+      <div class="seg" id="shSeg" role="group" aria-label="Sun protection mode"></div>
+      <p class="note" id="shNote"></p>
+      <h3>Heat / cool changeover</h3>
+      <div class="seg" id="hcSeg" role="group" aria-label="Heat or cool"></div>
+      <h3>Operating mode</h3>
+      <div class="seg" id="hvSeg" role="group" aria-label="Operating mode"></div>
+      <label class="toggle"><input type="checkbox" id="fcuEn" checked> Fan coil as boost stage</label>
+    </div>
+  </aside>
+
+  <section id="trend" class="panel">
+    <h2>Last 24 hours</h2>
+    <div class="chartwrap"><canvas id="chart" aria-label="Trend of room, setpoint, slab and outdoor temperature with heat pump electrical power"></canvas></div>
+    <div class="legend">
+      <span><i style="background:var(--ink)"></i>Room</span>
+      <span><i style="background:var(--heat)"></i>Active setpoint</span>
+      <span><i style="background:var(--ink2);opacity:.6"></i>Slab</span>
+      <span><i style="background:var(--cool)"></i>Outdoor</span>
+      <span><i style="background:var(--elec)"></i>Heat pump electrical power</span>
+    </div>
+  </section>
+
+  <section id="energy" class="panel">
+    <h2>Energy</h2>
+    <div class="egrid">
+      <div>
+        <h3 style="margin-top:0">Room heat balance, now</h3>
+        <div class="bal" id="bal"></div>
+        <p class="note" id="balNote"></p>
+      </div>
+      <div>
+        <h3 style="margin-top:0">Heat pump</h3>
+        <div class="kpis">
+          <div class="kpi"><b id="kTh">0 W</b><span>Thermal output</span></div>
+          <div class="kpi el"><b id="kEl">0 W</b><span>Electrical input</span></div>
+          <div class="kpi"><b id="kCop">–</b><span id="kCopL">COP now</span></div>
+          <div class="kpi"><b id="kFlow">–</b><span>Flow setpoint</span></div>
+          <div class="kpi"><b id="kEth">0.0 kWh</b><span>Heat moved today</span></div>
+          <div class="kpi el"><b id="kEel">0.0 kWh</b><span>Electricity today</span></div>
+          <div class="kpi el"><b id="kCost">€0.00</b><span>Cost today</span></div>
+          <div class="kpi"><b id="kDcop">–</b><span>Daily performance factor</span></div>
+          <div class="kpi"><b id="kBel">0.0 kWh</b><span>Conventional control today</span></div>
+          <div class="kpi sv"><b id="kSave">–</b><span>Saving vs conventional</span></div>
+        </div>
+        <p class="note">Conventional control means the same room and heat pump held at the comfort setpoint day and night, a fixed 40 °C heating flow (7 °C for cooling) without weather compensation, and no sun protection. Illustrative model, not a performance guarantee.</p>
+        <p class="note" id="yday"></p>
+      </div>
+      <div class="eng">
+        <h3 style="margin-top:0">Calculations, live</h3>
+        <div id="calcs"></div>
+      </div>
+    </div>
+  </section>
+
+  <section id="gas" class="panel eng">
+    <h2>Group addresses</h2>
+    <div class="tbl">
+      <table>
+        <thead><tr><th>GA</th><th>Function</th><th>DPT</th><th>Value</th><th>Sender</th></tr></thead>
+        <tbody id="gaBody"></tbody>
+      </table>
+    </div>
+  </section>
+
+  <section id="mon" class="panel eng">
+    <div class="monhead"><h2>Bus monitor</h2><button id="clearMon">Clear</button></div>
+    <div class="tbl">
+      <table>
+        <thead><tr><th>Time</th><th>Source</th><th>GA</th><th>Raw</th><th>Value</th></tr></thead>
+        <tbody id="monBody"></tbody>
+      </table>
+    </div>
+    <p class="note">Telegrams are sent on change (temperatures ±0.2 K, valves ±3%, power ±10%) and cyclically every 15 minutes for key sensors.</p>
+  </section>
+</main>
+</div>
+
+<script>
+(() => {
+const $ = id => document.getElementById(id);
+const clamp = (v,a,b) => Math.min(b, Math.max(a, v));
+const reduced = matchMedia('(prefers-reduced-motion: reduce)').matches;
+const DAYS = ['Monday','Tuesday','Wednesday','Thursday','Friday','Saturday','Sunday'];
+const HV = {1:'Comfort',2:'Standby',3:'Night',4:'Building protection'};
+const MONTHS = ['January','February','March','April','May','June','July','August','September','October','November','December'];
+let quiet = false;
+
+/* ---------- parameters and state ---------- */
+const P = {
+  toutMean:11, toutSwing:5, rh:60, solarM2:370, facade:180,
+  UAf:90, area:40, base:21, shift:0, tariff:0.30, winW:3.0, winH:1.8, glaz:'lowe', winOpen:'closed',
+  hcSel:'auto', hvSel:'auto', fcuEnable:true,
+  speed:300, playing:true,
+  month:1, wind:3, shadeMode:'thermal', shadeManual:0
+};
+const S = {
+  t:6*3600, day:0, Tr:18.6, Ts:19.4, Tf:22, heating:true,
+  I:0, valve:0, fan:0, hpOn:false, flowSet:30, dewLock:false,
+  sp:21, heatSP:21, coolSP:23, hv:1,
+  shadePos:0, shadeTarget:0, windAlarm:false, shadeSun:false,
+  Eth:0, Eel:0, Bel:0, yday:null, lastCtl:-1e9, lastHist:-1e9, hist:[]
+};
+const D = {};
+const K = { Ug:{single:5.8, double:2.8, lowe:1.4, triple:0.8}, awL:1.5, awGap:0.15, winH:1.8, awBlock:0.9, sunThr:200, windThr:10, awTravel:60, ws:12, hsrH:10.8, hsrC:6.5, fc:180, fanFrac:[0,.45,.72,1], eta:.45, pump:45, fanW:[0,18,32,55] };
+
+const hourOf = t => (t % 86400) / 3600;
+const toutAt = t => P.toutMean + P.toutSwing * Math.cos(2*Math.PI*(hourOf(t)-15)/24);
+const RAD = Math.PI/180, LAT = 34.7*RAD;   // Limassol
+function sunPos(t, month){
+  const h = hourOf(t);
+  const N = 30.4*(month-0.5);
+  const decl = 23.44*Math.sin(2*Math.PI*(284+N)/365)*RAD;
+  const noonT = (month>=4 && month<=10) ? 12.8 : 11.8;   // local clock, EET / EEST at 33 E
+  const H = 15*(h - noonT)*RAD;
+  const se = Math.sin(LAT)*Math.sin(decl) + Math.cos(LAT)*Math.cos(decl)*Math.cos(H);
+  const el = Math.asin(clamp(se,-1,1))/RAD;
+  const az = Math.atan2(Math.sin(H), Math.cos(H)*Math.sin(LAT) - Math.tan(decl)*Math.cos(LAT))/RAD + 180;
+  return {el, az};
+}
+function sunGeom(t, month){
+  const {el, az} = sunPos(t, month);
+  const up = el > 0;
+  const se = Math.max(0, Math.sin(el*RAD));
+  const k = up ? 1 - Math.exp(-se/0.1) : 0;
+  const psi = (az - P.facade)*RAD;
+  const cosInc = Math.cos(el*RAD)*Math.cos(psi);
+  const direct = up ? Math.max(0, cosInc)*k : 0;
+  const diff = up ? Math.min(1, se*1.6)*k : 0;
+  const prof = direct > 0 ? Math.atan(Math.tan(el*RAD)/Math.max(0.02, Math.cos(psi)))/RAD : 0;
+  return {elev:el, az, up, direct, diff, G:1000*se*k, facadeIrr:900*direct, prof};
+}
+function shadedFraction(pos, prof){
+  if (prof <= 0.5) return 0;
+  const shadow = pos*K.awL*Math.tan(prof*Math.PI/180);
+  return clamp((shadow - K.awGap)/P.winH, 0, 1);
+}
+function neededExtension(prof){
+  if (prof <= 0.5) return 1;
+  return clamp((K.awGap + P.winH)/Math.tan(prof*Math.PI/180)/K.awL, 0, 1);
+}
+const internalGain = t => { const h = hourOf(t); return (h>=18 && h<23) ? 400 : (h>=7 && h<9) ? 250 : 120; };
+function dewPoint(T, RH){ const a=17.62, b=243.12; const g=Math.log(RH/100)+a*T/(b+T); return b*g/(a-g); }
+function copOf(heating, Tf, To){
+  if (heating){ const Tc=Tf+3, Te=To-6; return clamp(K.eta*(Tc+273.15)/Math.max(Tc-Te,5),1.5,6.5); }
+  const Te=Tf-4, Tc=To+8; return clamp(K.eta*(Te+273.15)/Math.max(Tc-Te,5),1.8,7);
+}
+
+/* ---------- derived quantities ---------- */
+function derive(){
+  D.To = toutAt(S.t);
+  Object.assign(D, sunGeom(S.t, P.month));
+  D.shadeFrac = D.direct>0 ? shadedFraction(S.shadePos/100, D.prof) : 0;
+  D.Aw = P.winW*P.winH;
+  D.QsolFree = P.solarM2*D.Aw*(0.85*D.direct + 0.15*D.diff);
+  D.Qsol = P.solarM2*D.Aw*(0.85*D.direct*(1 - K.awBlock*D.shadeFrac) + 0.15*D.diff);
+  D.Qint = internalGain(S.t);
+  D.dew = dewPoint(S.Tr, P.rh);
+  D.Cr = P.area*50000; D.Cs = P.area*140000;
+  D.Tufh = S.heating ? S.Tf : Math.max(S.Tf, D.dew+2);
+  let qws = S.hpOn ? (S.valve/100)*K.ws*P.area*(D.Tufh - S.Ts) : 0;
+  D.Qws = S.heating ? Math.max(0,qws) : Math.min(0,qws);
+  D.hsr = S.Ts > S.Tr ? K.hsrH : K.hsrC;
+  D.Qsr = D.hsr*P.area*(S.Ts - S.Tr);
+  let qfc = (S.hpOn && S.fan>0) ? K.fanFrac[S.fan]*K.fc*(S.Tf - S.Tr) : 0;
+  D.Qfc = S.heating ? Math.max(0,qfc) : Math.min(0,qfc);
+  // heat loss split: walls/roof/floor, glass, air leakage and the open window
+  const dT = S.Tr - D.To;
+  const Aop = P.winOpen === 'open' ? (P.winW/2)*P.winH*0.9 : P.winOpen === 'tilt' ? (P.winW/2)*P.winH*0.12 : 0;
+  D.Qv = Aop > 0 ? 0.6*Aop/3*Math.sqrt(9.81*P.winH*Math.max(Math.abs(dT),0.5)/(273.15 + (S.Tr + D.To)/2)) + 0.025*Aop*P.wind : 0;
+  D.Hfab = P.UAf; D.Hglz = K.Ug[P.glaz]*D.Aw; D.Hinf = 0.34*0.5*P.area*2.7; D.Hopen = 1200*D.Qv;
+  D.Htot = D.Hfab + D.Hglz + D.Hinf + D.Hopen;
+  D.Qfab = D.Hfab*dT; D.Qglz = D.Hglz*dT; D.Qinf = D.Hinf*dT; D.Qopen = D.Hopen*dT;
+  D.Qloss = D.Htot*dT;
+  D.cop = copOf(S.heating, S.Tf, D.To);
+  D.Pth = S.hpOn ? Math.abs(D.Qws + D.Qfc) : 0;
+  D.Pel = S.hpOn ? D.Pth/D.cop + K.pump + K.fanW[S.fan] : K.fanW[S.fan];
+  D.net = D.Qsr + D.Qfc + D.Qsol + D.Qint - D.Qloss;
+}
+
+/* ---------- room controller logic (runs every 60 s) ---------- */
+function control(){
+  const h = hourOf(S.t);
+  // an open or tilted window puts the controller into building protection
+  const hv = P.winOpen !== 'closed' ? 4 : P.hvSel === 'auto' ? ((h>=7 && h<22) ? 1 : 3) : +P.hvSel;
+  S.hv = hv;
+  const off = {1:0,2:2,3:4,4:0}[hv];
+  S.heatSP = hv===4 ? 7 : P.base + P.shift - off;
+  S.coolSP = hv===4 ? 35 : P.base + P.shift + 2 + off;
+  const wasHeating = S.heating;
+  if (P.hcSel === 'heat') S.heating = true;
+  else if (P.hcSel === 'cool') S.heating = false;
+  else {
+    if (S.heating && S.Tr > S.coolSP) S.heating = false;
+    else if (!S.heating && S.Tr < S.heatSP) S.heating = true;
+  }
+  if (wasHeating !== S.heating) S.I = 0;
+  S.sp = S.heating ? S.heatSP : S.coolSP;
+  const e = S.heating ? S.sp - S.Tr : S.Tr - S.sp;
+
+  // PI for floor valve: Kp 40 %/K, Ti 90 min
+  const Kp = 40, Ti = 5400;
+  const u = Kp*(e + S.I/Ti);
+  if ((u > 0 && u < 100) || (u >= 100 && e < 0) || (u <= 0 && e > 0)) S.I += e*60;
+  S.I = clamp(S.I, -Ti*1.5, Ti*2.5);
+  S.valve = clamp(Kp*(e + S.I/Ti), 0, 100);
+
+  const dew = dewPoint(S.Tr, P.rh);
+  S.dewLock = !S.heating && S.Ts < dew + 1.5;
+  if (S.dewLock) S.valve = 0;
+
+  // Fan coil as second stage with hysteresis
+  const on = [0.5, 1.0, 1.5], hyst = 0.3;
+  const maxFan = !P.fcuEnable ? 0 : (hv===3 ? 1 : 3);
+  let f = S.fan;
+  if (f < 3 && e >= on[f]) f++;
+  while (f > 0 && e < on[f-1] - hyst) f--;
+  S.fan = Math.min(f, maxFan);
+
+  S.hpOn = S.valve > 2 || S.fan > 0;
+
+  // Sun protection: sun tracking from weather station, wind alarm has priority
+  const sg = sunGeom(S.t, P.month);
+  S.windAlarm = P.wind >= K.windThr || (S.windAlarm && P.wind > K.windThr - 2);
+  S.shadeSun = sg.facadeIrr >= K.sunThr && sg.elev > 3;
+  const wantShade = P.shadeMode === 'track' ? S.shadeSun
+                  : S.shadeSun && !S.heating;   // automatic: never shade while the controller is heating (1/0/5 = 1)
+  let tgt;
+  if (S.windAlarm) tgt = 0;
+  else if (P.shadeMode === 'manual') tgt = P.shadeManual;
+  else tgt = wantShade ? Math.ceil(neededExtension(sg.prof)*20)*5 : 0;
+  S.shadeTarget = tgt;
+  const To = toutAt(S.t);
+  S.flowSet = S.heating ? clamp(30 + 0.6*(15 - To), 28, 45) : 12;
+}
+
+/* ---------- physics integration ---------- */
+function step(dt){
+  derive();
+  if (S.hpOn) S.Tf += (S.flowSet - S.Tf)*Math.min(1, dt/360);
+  else S.Tf += (S.Tr + 1 - S.Tf)*dt/2400;
+  const dp = 100*dt/K.awTravel;
+  S.shadePos += clamp(S.shadeTarget - S.shadePos, -dp, dp);
+  S.Tr += dt*D.net/D.Cr;
+  S.Ts += dt*(D.Qws - D.Qsr)/D.Cs;
+  S.Eth += D.Pth*dt/3.6e6;
+  S.Eel += D.Pel*dt/3.6e6;
+  // conventional reference: comfort setpoint 24 h, fixed flow temperature, no awning
+  const Th = P.base + P.shift, Tc = Th + 2, gains = D.QsolFree + D.Qint;
+  const hNeed = D.Htot*(Th - D.To) - gains;   // conventional control has no window contact
+  const bh = Math.max(0, hNeed), bc = hNeed < 0 ? Math.max(0, gains - D.Htot*(Tc - D.To)) : 0;
+  D.Bel = (bh ? bh/copOf(true,40,D.To) : 0) + (bc ? bc/copOf(false,7,D.To) : 0) + ((bh||bc) ? K.pump : 0);
+  S.Bel += D.Bel*dt/3.6e6;
+  S.t += dt;
+  const day = Math.floor(S.t/86400);
+  if (day !== S.day){
+    S.yday = {th:S.Eth, el:S.Eel, cost:S.Eel*P.tariff, bel:S.Bel};
+    S.Eth = 0; S.Eel = 0; S.Bel = 0; S.day = day;
+  }
+  if (S.t - S.lastCtl >= 60){ control(); derive(); checkTelegrams(); S.lastCtl = S.t; }
+  if (S.t - S.lastHist >= 300){
+    S.hist.push({t:S.t, Tr:S.Tr, sp:S.sp, To:D.To, Ts:S.Ts, Pel:D.Pel, heat:S.heating});
+    while (S.hist.length && S.hist[0].t < S.t - 86400) S.hist.shift();
+    S.lastHist = S.t;
+  }
+}
+
+/* ---------- KNX encoding ---------- */
+function hex(bytes){ return bytes.map(b => b.toString(16).toUpperCase().padStart(2,'0')).join(' '); }
+function dpt9(v){
+  let m = v*100, e = 0;
+  while (m < -2048 || m > 2047){ m /= 2; e++; }
+  m = Math.round(m);
+  const sign = m < 0 ? 1 : 0;
+  const raw = (sign<<15) | (e<<11) | (m & 0x7FF);
+  return [raw>>8 & 255, raw & 255];
+}
+function f32(v){ const b=new DataView(new ArrayBuffer(4)); b.setFloat32(0,v); return [0,1,2,3].map(i=>b.getUint8(i)); }
+function i32(v){ const b=new DataView(new ArrayBuffer(4)); b.setInt32(0,Math.round(v)); return [0,1,2,3].map(i=>b.getUint8(i)); }
+function encode(dpt, v){
+  const main = dpt.split('.')[0];
+  if (main==='1') return hex([v?1:0]);
+  if (dpt==='5.001') return hex([Math.round(clamp(v,0,100)*255/100)]);
+  if (main==='5' || main==='20') return hex([Math.round(v) & 255]);
+  if (main==='9') return hex(dpt9(v));
+  if (main==='14') return hex(f32(v));
+  if (main==='13') return hex(i32(v));
+  if (dpt==='10.001'){ const t=S.t%86400; const dow=(S.day%7)+1; return hex([(dow<<5)|Math.floor(t/3600), Math.floor(t%3600/60), Math.floor(t%60)]); }
+  return '';
+}
+
+/* ---------- devices and group addresses ---------- */
+const DEV = {
+  ws:{x:70,  pa:'1.1.1',  name:'Weather station'},
+  ip:{x:365, pa:'1.1.0',  name:'IP router'},
+  ufh:{x:265,pa:'1.1.20', name:'Floor actuator'},
+  ts:{x:491, pa:'1.1.10', name:'Room controller'},
+  fcu:{x:805,pa:'1.1.30', name:'Fan coil actuator'},
+  hp:{x:120, pa:'1.1.40', name:'Heat pump gateway'},
+  aw:{x:159, pa:'1.1.50', name:'Awning actuator'},
+  wc:{x:0, pa:'1.1.60', name:'Window contact'}
+};
+const n1 = v => (Math.round(v*10)/10).toFixed(1).replace('-','−');
+const GROUPS = {'1/0':'Room controller','1/1':'Underfloor loop','1/2':'Fan coil','1/3':'Heat pump','1/4':'Weather and time','1/5':'Sun protection'};
+const GA = [
+  {ga:'1/0/0',name:'Room temperature',dpt:'9.001',src:'ts',dst:[],get:()=>S.Tr,th:0.2,cyc:900,f:v=>n1(v)+' °C'},
+  {ga:'1/0/1',name:'Base comfort setpoint',dpt:'9.001',src:'ts',dst:[],get:()=>P.base,th:0.01,f:v=>n1(v)+' °C'},
+  {ga:'1/0/2',name:'Setpoint shift',dpt:'9.002',src:'ts',dst:[],get:()=>P.shift,th:0.01,f:v=>(v>0?'+':'')+n1(v)+' K'},
+  {ga:'1/0/3',name:'Active setpoint',dpt:'9.001',src:'ts',dst:[],get:()=>S.sp,th:0.01,f:v=>n1(v)+' °C'},
+  {ga:'1/0/4',name:'Operating mode',dpt:'20.102',src:'ts',dst:[],get:()=>S.hv,th:0.5,f:v=>HV[v]},
+  {ga:'1/0/5',name:'Heat / cool',dpt:'1.100',src:'ts',dst:['hp','fcu','ufh','aw'],get:()=>S.heating?1:0,th:0.5,f:v=>v?'Heating':'Cooling'},
+  {ga:'1/0/6',name:'Relative humidity',dpt:'9.007',src:'ts',dst:[],get:()=>P.rh,th:1,f:v=>Math.round(v)+' %'},
+  {ga:'1/0/7',name:'Dew point',dpt:'9.001',src:'ts',dst:['ufh'],get:()=>D.dew,th:0.3,f:v=>n1(v)+' °C'},
+  {ga:'1/0/8',name:'Window contact',dpt:'1.019',src:'wc',dst:['ts'],get:()=>P.winOpen!=='closed'?1:0,th:0.5,f:v=>v?'Open':'Closed'},
+  {ga:'1/1/0',name:'Floor valve command',dpt:'5.001',src:'ts',dst:['ufh'],get:()=>S.valve,th:3,f:v=>Math.round(v)+' %'},
+  {ga:'1/1/1',name:'Floor slab temperature',dpt:'9.001',src:'ufh',dst:['ts'],get:()=>S.Ts,th:0.2,cyc:900,f:v=>n1(v)+' °C'},
+  {ga:'1/1/2',name:'Dew-point lock',dpt:'1.001',src:'ufh',dst:['ts'],get:()=>S.dewLock?1:0,th:0.5,f:v=>v?'Locked':'Free'},
+  {ga:'1/2/0',name:'Fan speed command',dpt:'5.010',src:'ts',dst:['fcu'],get:()=>S.fan,th:0.5,f:v=>v?'Speed '+v:'Off'},
+  {ga:'1/2/1',name:'Fan coil valve',dpt:'1.001',src:'ts',dst:['fcu'],get:()=>S.fan>0?1:0,th:0.5,f:v=>v?'Open':'Closed'},
+  {ga:'1/2/2',name:'Fan speed status',dpt:'5.010',src:'fcu',dst:['ts'],get:()=>S.fan,th:0.5,f:v=>v?'Speed '+v:'Off'},
+  {ga:'1/3/0',name:'Heat pump demand',dpt:'1.001',src:'ts',dst:['hp'],get:()=>S.hpOn?1:0,th:0.5,f:v=>v?'On':'Off'},
+  {ga:'1/3/1',name:'Heat pump mode status',dpt:'20.105',src:'hp',dst:['ts'],get:()=>S.hpOn?(S.heating?1:3):6,th:0.5,f:v=>({1:'Heat',3:'Cool',6:'Off'})[v]},
+  {ga:'1/3/2',name:'Flow setpoint',dpt:'9.001',src:'hp',dst:[],get:()=>S.flowSet,th:0.5,f:v=>n1(v)+' °C'},
+  {ga:'1/3/3',name:'Flow temperature',dpt:'9.001',src:'hp',dst:[],get:()=>S.Tf,th:0.5,cyc:900,f:v=>n1(v)+' °C'},
+  {ga:'1/3/4',name:'Thermal power',dpt:'14.056',src:'hp',dst:[],get:()=>D.Pth,th:'rel',f:v=>Math.round(v)+' W'},
+  {ga:'1/3/5',name:'Electrical power',dpt:'14.056',src:'hp',dst:[],get:()=>D.Pel,th:'rel',f:v=>Math.round(v)+' W'},
+  {ga:'1/3/6',name:'COP / EER',dpt:'14.000',src:'hp',dst:[],get:()=>D.cop,th:0.2,f:v=>v.toFixed(2)},
+  {ga:'1/3/7',name:'Electrical energy today',dpt:'13.010',src:'hp',dst:[],get:()=>S.Eel*1000,th:250,f:v=>Math.round(v)+' Wh'},
+  {ga:'1/4/0',name:'Outdoor temperature',dpt:'9.001',src:'ws',dst:['hp','ts'],get:()=>D.To,th:0.5,cyc:1800,f:v=>n1(v)+' °C'},
+  {ga:'1/4/1',name:'Solar radiation',dpt:'9.022',src:'ws',dst:[],get:()=>D.G,th:40,f:v=>Math.round(v)+' W/m²'},
+  {ga:'1/4/2',name:'Time of day',dpt:'10.001',src:'ip',dst:['ts','hp'],get:()=>Math.floor(hourOf(S.t)),th:0.5,f:()=>DAYS[S.day%7].slice(0,3)+' '+clockStr(S.t)},
+  {ga:'1/4/3',name:'Wind speed',dpt:'9.005',src:'ws',dst:[],get:()=>P.wind,th:0.5,f:v=>n1(v)+' m/s'},
+  {ga:'1/4/4',name:'Sun elevation',dpt:'14.007',src:'ws',dst:[],get:()=>Math.max(0,D.elev),th:2,f:v=>n1(v)+'°'},
+  {ga:'1/4/5',name:'Sun azimuth',dpt:'14.007',src:'ws',dst:[],get:()=>D.up?D.az:0,th:3,f:v=>n1(v)+'°'},
+  {ga:'1/5/0',name:'Awning position command',dpt:'5.001',src:'ws',dst:['aw'],get:()=>S.shadeTarget,th:1,f:v=>Math.round(v)+' %'},
+  {ga:'1/5/1',name:'Awning position status',dpt:'5.001',src:'aw',dst:['ts'],get:()=>S.shadePos,th:5,f:v=>Math.round(v)+' %'},
+  {ga:'1/5/2',name:'Sun on facade',dpt:'1.002',src:'ws',dst:['aw','ts'],get:()=>S.shadeSun?1:0,th:0.5,f:v=>v?'True':'False'},
+  {ga:'1/5/3',name:'Automatic sun protection',dpt:'1.003',src:'ts',dst:['aw','ws'],get:()=>P.shadeMode==='manual'?0:1,th:0.5,f:v=>v?'Enabled':'Disabled'},
+  {ga:'1/5/4',name:'Wind alarm',dpt:'1.005',src:'ws',dst:['aw'],get:()=>S.windAlarm?1:0,th:0.5,f:v=>v?'Alarm':'No alarm'}
+];
+const sent = {};
+let log = [];
+let monDirty = true;
+
+function checkTelegrams(force){
+  for (const g of GA){
+    const v = g.get();
+    const s = sent[g.ga];
+    let go = force || !s;
+    if (!go){
+      const d = Math.abs(v - s.v);
+      if (g.th === 'rel') go = d >= Math.max(100, Math.abs(s.v)*0.1) || (s.v!==0 && v===0) || (s.v===0 && v!==0);
+      else go = d >= g.th;
+      if (!go && g.cyc && S.t - s.t >= g.cyc) go = true;
+    }
+    if (go) send(g, v);
+  }
+}
+function send(g, v){
+  sent[g.ga] = {v, t:S.t, real:performance.now()};
+  log.unshift({t:S.t, src:g.src, ga:g.ga, raw:encode(g.dpt, v), txt:g.f(v)});
+  if (log.length > 120) log.length = 120;
+  monDirty = true;
+  launchPulse(g.src, g.dst);
+}
+
+/* ---------- architectural model scene ---------- */
+const NS = 'http://www.w3.org/2000/svg';
+const SC = 50, OX = 467.5, OY = 243.75, CI = 0.866;
+const RW = 7, RD = 5.5, RH = 3, WT = 0.25, GZ = -0.35, gY = -WT + 0.08;
+const HPZ0 = GZ + 0.1, HPZ1 = GZ + 1.2;
+const scene = $('scene');
+const prj = (x,y,z) => [OX + (x-y)*CI*SC, OY + (x+y)*0.5*SC - z*SC];
+const f1 = v => (+v).toFixed(1);
+const ptsW = arr => arr.map(p => { const q = prj(p[0],p[1],p[2]); return f1(q[0])+','+f1(q[1]); }).join(' ');
+const ptsS = arr => arr.map(q => f1(q[0])+','+f1(q[1])).join(' ');
+const pathW = (arr, close) => arr.map((p,i) => { const q = prj(p[0],p[1],p[2]); return (i?'L':'M')+f1(q[0])+' '+f1(q[1]); }).join(' ') + (close?' Z':'');
+function mk(tag, a, parent){ const e = document.createElementNS(NS, tag); for (const k in a) e.setAttribute(k, a[k]); parent.appendChild(e); return e; }
+function hexRgb(h){ h = h.replace('#',''); return [0,2,4].map(i => parseInt(h.substr(i,2),16)); }
+function shade(h, f){ const c = hexRgb(h); return 'rgb('+c.map(v => Math.round(f >= 0 ? v + (255-v)*f : v*(1+f))).join(',')+')'; }
+function mixHex(a, b, t){ const A = hexRgb(a), B = hexRgb(b); t = clamp(t,0,1); return 'rgb('+A.map((v,i) => Math.round(v + (B[i]-v)*t)).join(',')+')'; }
+function mix(a,b,x){ return a.map((v,i)=>Math.round(v+(b[i]-v)*x)); }
+function rgb(c,a){ return `rgba(${c[0]},${c[1]},${c[2]},${a})`; }
+const C_HOT=[200,66,63], C_COLD=[35,121,181];
+function waterColor(T){ return rgb(mix(C_COLD, C_HOT, clamp((T-12)/30,0,1)), 1); }
+function box3(g, x0,x1,y0,y1,z0,z1, base, o){
+  o = o || {};
+  const st = {stroke:shade(base,-.42),'stroke-width':o.sw||.6,'stroke-linejoin':'round','stroke-opacity':.7};
+  mk('polygon',Object.assign({points:ptsW([[x1,y0,z0],[x1,y1,z0],[x1,y1,z1],[x1,y0,z1]]),fill:o.r||shade(base,-.09)},st),g);
+  mk('polygon',Object.assign({points:ptsW([[x0,y1,z0],[x1,y1,z0],[x1,y1,z1],[x0,y1,z1]]),fill:o.l||shade(base,-.2)},st),g);
+  mk('polygon',Object.assign({points:ptsW([[x0,y0,z1],[x1,y0,z1],[x1,y1,z1],[x0,y1,z1]]),fill:o.t||shade(base,.14)},st),g);
+}
+function ring(plane, c, r, n){ n=n||32; const out=[]; for(let i=0;i<n;i++){ const a=i/n*2*Math.PI, u=r*Math.cos(a), v=r*Math.sin(a); out.push(plane==='y'?[c[0]+u,c[1],c[2]+v]:plane==='x'?[c[0],c[1]+u,c[2]+v]:[c[0]+u,c[1]+v,c[2]]); } return out; }
+// world axes: +x along the window wall, +y from the window into the room, +z up
+function dirOf(az, el){ const psi=(az-P.facade)*RAD, ce=Math.cos(el*RAD); return [ce*Math.sin(psi), -ce*Math.cos(psi), Math.sin(el*RAD)]; }
+function skyPt(az, el){ const rel = ((az - P.facade + 540) % 360) - 180; return [500 + rel/135*460, 142 - el*1.58]; }
+function hull(pp){ pp=pp.slice().sort((a,b)=>a[0]-b[0]||a[1]-b[1]); const cr=(o,a,b)=>(a[0]-o[0])*(b[1]-o[1])-(a[1]-o[1])*(b[0]-o[0]); const lo=[],up=[]; for(const p of pp){while(lo.length>=2&&cr(lo[lo.length-2],lo[lo.length-1],p)<=0)lo.pop();lo.push(p);} for(let i=pp.length-1;i>=0;i--){const p=pp[i];while(up.length>=2&&cr(up[up.length-2],up[up.length-1],p)<=0)up.pop();up.push(p);} up.pop();lo.pop();return lo.concat(up); }
+function arrow(x1,y1,x2,y2,w){
+  const dx=x2-x1, dy=y2-y1, L=Math.hypot(dx,dy)||1, ux=dx/L, uy=dy/L, px=-uy, py=ux;
+  const hw=w/2, hl=Math.min(L*0.5, w*1.5+7), hwh=hw+6;
+  const bx=x2-ux*hl, by=y2-uy*hl;
+  const p=[[x1+px*hw,y1+py*hw],[bx+px*hw,by+py*hw],[bx+px*hwh,by+py*hwh],[x2,y2],[bx-px*hwh,by-py*hwh],[bx-px*hw,by-py*hw],[x1-px*hw,y1-py*hw]];
+  return p.map(q=>q[0].toFixed(1)+','+q[1].toFixed(1)).join(' ');
+}
+function winG(){ const w = P.winW, h = P.winH; return {x0:3.3-w/2, x1:3.3+w/2, xm:3.3, z0:2.2-h, z1:2.2}; }
+
+const E = {};
+const LY = {};
+['sky','sunB','plot','awning','walls','floor','devWall','sash','furn','air','light','front','outside','arrows','bus','veil','emit','labels','pulses']
+  .forEach(n => LY[n] = mk('g',{},scene));
+const defs = mk('defs',{},scene); scene.insertBefore(defs, scene.firstChild);
+
+const POCHE = '#46525A', PLASTER_E = '#F3EFE7', PLASTER_S = '#E9E3D8', OAK = '#D5B58A', SOFA = '#566A73';
+const BUS = [[1.5,6.85,HPZ1],[1.5,6.85,1.6],[0.1,5.5,1.6],[0.1,5.5,2.75],[0.1,0.1,2.75],[6.3,0.1,2.75],[6.3,-0.12,3.35]];
+DEV.hp.tap=[1.5,6.85,HPZ1]; DEV.ip.tap=[0.1,4.67,2.75]; DEV.fcu.tap=[5.9,0.1,2.75]; DEV.ts.tap=[0.1,2.6,2.75];
+DEV.ufh.tap=[0.1,1.2,2.75]; DEV.aw.tap=[1.35,0.1,2.75]; DEV.ws.tap=[6.3,-0.12,3.35]; DEV.wc.tap=[2.07,0.1,2.75];
+const busS = BUS.map(p => prj(...p));
+const busCum = [0]; for (let i=1;i<busS.length;i++) busCum.push(busCum[i-1] + Math.hypot(busS[i][0]-busS[i-1][0], busS[i][1]-busS[i-1][1]));
+const busLen = busCum[busCum.length-1];
+function busAt(sv){ for (let i=1;i<busS.length;i++){ if (sv <= busCum[i] || i===busS.length-1){ const f=(sv-busCum[i-1])/((busCum[i]-busCum[i-1])||1); return [busS[i-1][0]+(busS[i][0]-busS[i-1][0])*f, busS[i-1][1]+(busS[i][1]-busS[i-1][1])*f]; } } return busS[0]; }
+function locate(q){ let best=1e9, bs=0; for (let i=1;i<busS.length;i++){ const a=busS[i-1], b=busS[i]; const vx=b[0]-a[0], vy=b[1]-a[1]; const L2=vx*vx+vy*vy||1; const f=clamp(((q[0]-a[0])*vx+(q[1]-a[1])*vy)/L2,0,1); const d=Math.hypot(a[0]+vx*f-q[0], a[1]+vy*f-q[1]); if(d<best){best=d; bs=busCum[i-1]+f*Math.sqrt(L2);} } return bs; }
+for (const id in DEV) DEV[id].s = locate(prj(...DEV[id].tap));
+
+const CH = [];
+function chip(anchor, cx, cy, title, pa){
+  const g = mk('g',{},LY.labels);
+  const line = mk('path',{fill:'none',stroke:'#15232C','stroke-width':.9,opacity:.55},g);
+  const dot = mk('circle',{r:2.8,fill:'#15232C',stroke:'#fff','stroke-width':1.2},g);
+  const r = mk('rect',{rx:6,fill:'#FBFCFA','fill-opacity':.94,stroke:'#15232C','stroke-opacity':.14},g);
+  const t1 = mk('text',{'font-size':12,'font-weight':650,fill:'#15232C'},g);
+  t1.appendChild(document.createTextNode(title));
+  if (pa){ const ts = mk('tspan',{class:'eng','font-weight':500,fill:'#53636B'},t1); ts.textContent = '  '+pa; }
+  const t2 = mk('text',{'font-size':11.5,fill:'#53636B'},g);
+  const c = {anchor, cx, cy, g, line, dot, r, t1, t2}; CH.push(c); return c;
+}
+function layoutChip(c){
+  const q = prj(...(typeof c.anchor === 'function' ? c.anchor() : c.anchor));
+  const w = Math.max(c.t1.getComputedTextLength(), c.t2.getComputedTextLength()) + 20, h = 38;
+  const right = c.cx >= q[0], left = right ? c.cx : c.cx - w;
+  c.dot.setAttribute('cx', f1(q[0])); c.dot.setAttribute('cy', f1(q[1]));
+  c.r.setAttribute('x', f1(left)); c.r.setAttribute('y', f1(c.cy - h/2)); c.r.setAttribute('width', f1(w)); c.r.setAttribute('height', h);
+  c.t1.setAttribute('x', f1(left+10)); c.t1.setAttribute('y', f1(c.cy - 3));
+  c.t2.setAttribute('x', f1(left+10)); c.t2.setAttribute('y', f1(c.cy + 12));
+  const ex = right ? left : left + w;
+  c.line.setAttribute('d', `M${f1(q[0])} ${f1(q[1])} L${f1(ex + (right ? -10 : 10))} ${f1(c.cy)} L${f1(ex)} ${f1(c.cy)}`);
+}
+
+function pipe(g, d){
+  const o = {d, fill:'none','stroke-linecap':'round','stroke-linejoin':'round'};
+  mk('path',Object.assign({},o,{stroke:'#2a3136','stroke-width':5.2,opacity:.55}),g);
+  const core = mk('path',Object.assign({},o,{'stroke-width':3.4}),g);
+  mk('path',Object.assign({},o,{stroke:'#fff','stroke-width':1,opacity:.35,transform:'translate(-.6,-.8)'}),g);
+  return core;
+}
+
+function buildScene(){
+  defs.innerHTML = `
+  <linearGradient id="mSky" x1="0" y1="0" x2="0" y2="1"><stop id="sk1" offset="0"/><stop id="sk2" offset=".75"/></linearGradient>
+  <radialGradient id="mSun"><stop offset="0" stop-color="#FFF6D6"/><stop offset=".35" stop-color="#FFE08A"/><stop offset="1" stop-color="#FFD166" stop-opacity="0"/></radialGradient>
+  <radialGradient id="mLamp"><stop offset="0" stop-color="#FFD58F" stop-opacity=".85"/><stop offset=".45" stop-color="#FFC877" stop-opacity=".35"/><stop offset="1" stop-color="#FFC877" stop-opacity="0"/></radialGradient>
+  <radialGradient id="mFloorHeat" cx=".45" cy=".55" r=".7"><stop id="fh1" offset="0" stop-opacity=".28"/><stop id="fh2" offset="1" stop-opacity="0"/></radialGradient>
+  <linearGradient id="mGlass" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#E4F2F8" stop-opacity=".55"/><stop offset=".45" stop-color="#A9D0E3" stop-opacity=".28"/><stop offset=".5" stop-color="#FFFFFF" stop-opacity=".5"/><stop offset=".56" stop-color="#A9D0E3" stop-opacity=".25"/><stop offset="1" stop-color="#8FC0D9" stop-opacity=".35"/></linearGradient>
+  <linearGradient id="mShaft" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#FFF1C2" stop-opacity=".55"/><stop offset="1" stop-color="#FFE39A" stop-opacity=".12"/></linearGradient>
+  <linearGradient id="mSoil" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#7B6148"/><stop offset=".25" stop-color="#6A523D"/><stop offset="1" stop-color="#4A3A2C"/></linearGradient>
+  <pattern id="mStripe" width="11" height="11" patternUnits="userSpaceOnUse" patternTransform="rotate(-30)"><rect width="11" height="11" fill="#F1EAD9"/><rect width="5.5" height="11" fill="#2F6F73"/></pattern>
+  <pattern id="mIns" width="6" height="6" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><rect width="6" height="6" fill="#E9D98C"/><line x1="0" y1="0" x2="0" y2="6" stroke="#C9B563" stroke-width="1.4"/></pattern>
+  <filter id="mB2" x="-20%" y="-20%" width="140%" height="140%"><feGaussianBlur stdDeviation="2"/></filter>
+  <filter id="mB4" x="-30%" y="-30%" width="160%" height="160%"><feGaussianBlur stdDeviation="4"/></filter>
+  <filter id="mB8" x="-40%" y="-40%" width="180%" height="180%"><feGaussianBlur stdDeviation="8"/></filter>
+  <filter id="mGlow" x="-100%" y="-100%" width="300%" height="300%"><feGaussianBlur stdDeviation="3" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter>
+  <clipPath id="mFloor"><polygon points="${ptsW([[0,0,0],[RW,0,0],[RW,RD,0],[0,RD,0]])}"/></clipPath>
+  <clipPath id="mRoom"><polygon points="${ptsW([[0,0,RH],[RW,0,RH],[RW,0,0],[RW,RD,0],[0,RD,0],[0,RD,RH]])}"/></clipPath>`;
+  const grad = (id, a, b, stops) => { const lg = mk('linearGradient',{id,gradientUnits:'userSpaceOnUse',x1:f1(a[0]),y1:f1(a[1]),x2:f1(b[0]),y2:f1(b[1])},defs); stops.forEach(([o,c,op]) => mk('stop',{offset:o,'stop-color':c,'stop-opacity':op==null?1:op},lg)); };
+
+  /* sky */
+  const SK = LY.sky;
+  mk('rect',{x:0,y:0,width:1000,height:720,fill:'url(#mSky)'},SK);
+  E.stars = mk('g',{},SK);
+  for (let i=0;i<46;i++) mk('circle',{cx:f1((i*197.3)%1000),cy:f1((i*71.9)%300),r:(i%5?0.8:1.4),fill:'#fff'},E.stars);
+  E.clouds = mk('g',{filter:'url(#mB8)'},SK);
+  [[150,80,70,16],[210,72,50,14],[820,110,80,15],[880,100,46,12],[610,40,60,11]].forEach(([x,y,rx,ry]) => mk('ellipse',{cx:x,cy:y,rx,ry,fill:'#fff'},E.clouds));
+  E.moon = mk('g',{},SK);
+  mk('circle',{cx:905,cy:92,r:22,fill:'url(#mSun)',opacity:.35},E.moon);
+  mk('circle',{cx:905,cy:92,r:10,fill:'#EEF1F4'},E.moon);
+  E.path = mk('polyline',{fill:'none',stroke:'#FFFFFF','stroke-width':1.4,'stroke-dasharray':'2 6','stroke-linecap':'round'},SK);
+  E.hours = mk('g',{},SK);
+  E.cmp = [['E',90],['SE',135],['S',180],['SW',225],['W',270],['NE',45],['NW',315]].map(([n,a]) => { const t = mk('text',{y:160,'text-anchor':'middle','font-size':n.length>1?10:12,'font-weight':700,fill:'#FFFFFF'},SK); t.textContent = n; return [a,t]; });
+  E.sun = mk('g',{},LY.sunB); mk('circle',{r:34,fill:'url(#mSun)'},E.sun); mk('circle',{r:11,fill:'#FFE9A6',stroke:'#F2C14E','stroke-width':1.5},E.sun);
+
+  /* model base */
+  const PL = LY.plot, PX0=-1.8, PX1=8.8, PY0=-2.4, PY1=8.0, PB=GZ-0.5;
+  mk('polygon',{points:ptsW([[PX1,PY0,PB],[PX1,PY1,PB],[PX1,PY1,GZ],[PX1,PY0,GZ]]),fill:'url(#mSoil)',stroke:'#3d2f24','stroke-width':.6},PL);
+  mk('polygon',{points:ptsW([[PX0,PY1,PB],[PX1,PY1,PB],[PX1,PY1,GZ],[PX0,PY1,GZ]]),fill:'url(#mSoil)',stroke:'#3d2f24','stroke-width':.6},PL);
+  mk('polygon',{points:ptsW([[PX1,PY0,GZ],[PX1,PY1,GZ],[PX1,PY1,GZ-0.06],[PX1,PY0,GZ-0.06]]),fill:'#6F8F4E'},PL);
+  mk('polygon',{points:ptsW([[PX0,PY1,GZ],[PX1,PY1,GZ],[PX1,PY1,GZ-0.06],[PX0,PY1,GZ-0.06]]),fill:'#5F7F44'},PL);
+  mk('polygon',{points:ptsW([[PX0,PY0,GZ],[PX1,PY0,GZ],[PX1,PY1,GZ],[PX0,PY1,GZ]]),fill:'#A7BD86',stroke:'#7E955F','stroke-width':.8},PL);
+  for (let i=1;i<10;i+=2){ const y0 = PY0 + i*1.04; mk('polygon',{points:ptsW([[PX0,y0,GZ],[PX1,y0,GZ],[PX1,y0+1.04,GZ],[PX0,y0+1.04,GZ]]),fill:'#B3C893',opacity:.55},PL); }
+  mk('polygon',{points:ptsW([[-0.6,5.75,GZ+.01],[4.2,5.75,GZ+.01],[4.2,7.9,GZ+.01],[-0.6,7.9,GZ+.01]]),fill:'#DCD5C6',stroke:'#B9B0A0','stroke-width':.7},PL);
+  for (let x=0; x<4.2; x+=0.6) mk('path',{d:pathW([[x,5.75,GZ+.01],[x,7.9,GZ+.01]]),stroke:'#C4BBAA','stroke-width':.7},PL);
+  for (let y=6.29; y<7.9; y+=0.54) mk('path',{d:pathW([[-0.6,y,GZ+.01],[4.2,y,GZ+.01]]),stroke:'#C4BBAA','stroke-width':.7},PL);
+  mk('polygon',{points:ptsW([[-WT+0.1,-WT-0.15,GZ],[RW+WT+0.35,-WT-0.15,GZ],[RW+WT+0.35,RD+WT+0.25,GZ],[-WT+0.1,RD+WT+0.25,GZ]]),fill:'#1d2a1a',opacity:.22,filter:'url(#mB4)'},PL);
+  const shrub = (x,y,r) => { const q = prj(x,y,GZ); mk('ellipse',{cx:f1(q[0]+4),cy:f1(q[1]+2),rx:r*1.1,ry:r*0.45,fill:'#243018',opacity:.28,filter:'url(#mB2)'},PL);
+    [[0,-r*0.55,r],[-r*0.55,-r*0.35,r*0.75],[r*0.55,-r*0.3,r*0.7],[0,-r*1.05,r*0.62]].forEach(([dx,dy,rr],i) => mk('circle',{cx:f1(q[0]+dx),cy:f1(q[1]+dy),r:f1(rr),fill:['#5E8A45','#6E9A52','#517A3C','#7CA95E'][i],stroke:'#3F6230','stroke-width':.6},PL)); };
+  shrub(8.1,1.2,17); shrub(8.2,2.4,12); shrub(-1.2,7.3,15);
+  E.north = mk('path',{stroke:'#3F4E3A','stroke-width':1.6,fill:'none'},PL);
+  E.northDot = mk('circle',{r:2.6,fill:'#3F4E3A'},PL);
+  E.northT = mk('text',{'font-size':13,'font-weight':700,fill:'#2F3B2B','text-anchor':'middle'},PL); E.northT.textContent = 'N';
+
+  /* awning outside the window wall */
+  E.awCas = mk('g',{},LY.awning);
+  E.awArms = mk('path',{stroke:'#5A6468','stroke-width':1.8,fill:'none','stroke-linecap':'round'},LY.awning);
+  E.awFab = mk('polygon',{fill:'url(#mStripe)',stroke:'#1E4D50','stroke-width':.8},LY.awning);
+  E.awShade = mk('polygon',{fill:'#0d2224',opacity:.18},LY.awning);
+  E.awVal = mk('path',{fill:'#2F6F73',stroke:'#1E4D50','stroke-width':.8},LY.awning);
+
+  /* walls */
+  const W = LY.walls;
+  E.winBack = mk('g',{},W);
+  E.winShade = mk('polygon',{fill:'#0d1a20',opacity:.25},W);
+  grad('mWS', prj(0,0,RH), prj(0,0,0), [[0,PLASTER_S],[1,shade(PLASTER_S,-.06)]]);
+  E.wallS = mk('path',{'fill-rule':'evenodd',fill:'url(#mWS)',stroke:'#8E8A80','stroke-width':.7},W);
+  E.reveal = mk('g',{},W);
+  grad('mWE', prj(0,0,1.5), prj(0,RD,1.5), [[0,PLASTER_E],[1,shade(PLASTER_E,-.08)]]);
+  mk('polygon',{points:ptsW([[0,0,0],[0,RD,0],[0,RD,RH],[0,0,RH]]),fill:'url(#mWE)',stroke:'#8E8A80','stroke-width':.7},W);
+  mk('polygon',{points:ptsW([[0.012,0,0],[0.012,RD,0],[0.012,RD,0.08],[0.012,0,0.08]]),fill:'#FBFAF7',stroke:'#B8B2A6','stroke-width':.5},W);
+  E.skirtS = mk('g',{},W);
+  grad('mAoC', prj(0,0,1.5), prj(0,0.45,1.5), [[0,'#3b3226',.16],[1,'#3b3226',0]]);
+  mk('polygon',{points:ptsW([[0,0,0],[0,0.45,0],[0,0.45,RH],[0,0,RH]]),fill:'url(#mAoC)'},W);
+  mk('polygon',{points:ptsW([[-WT,-WT,RH],[RW+WT,-WT,RH],[RW+WT,0,RH],[-WT,0,RH]]),fill:POCHE},W);
+  mk('polygon',{points:ptsW([[-WT,0,RH],[0,0,RH],[0,RD,RH],[-WT,RD,RH]]),fill:POCHE},W);
+  mk('polygon',{points:ptsW([[-WT,RD,0],[0,RD,0],[0,RD,RH],[-WT,RD,RH]]),fill:shade(POCHE,.08)},W);
+  mk('polygon',{points:ptsW([[RW+WT,-WT,0],[RW+WT,0,0],[RW+WT,0,RH],[RW+WT,-WT,RH]]),fill:shade(POCHE,.16)},W);
+
+  /* floor */
+  const F = LY.floor;
+  mk('polygon',{points:ptsW([[0,0,0],[RW,0,0],[RW,RD,0],[0,RD,0]]),fill:OAK},F);
+  const planks = mk('g',{'clip-path':'url(#mFloor)'},F);
+  for (let y=0.19, k=0; y<RD; y+=0.19, k++){
+    mk('path',{d:pathW([[0,y,0],[RW,y,0]]),stroke:shade(OAK,-.16),'stroke-width':.6,opacity:.7},planks);
+    for (let x=(k%3)*0.8+0.5; x<RW; x+=2.4) mk('path',{d:pathW([[x,y-0.19,0],[x,y,0]]),stroke:shade(OAK,-.16),'stroke-width':.6,opacity:.6},planks);
+    if (k%4===1) mk('polygon',{points:ptsW([[0,y,0],[RW,y,0],[RW,y+0.19,0],[0,y+0.19,0]]),fill:shade(OAK,.06),opacity:.5},planks);
+  }
+  E.floorTint = mk('polygon',{points:ptsW([[0,0,0],[RW,0,0],[RW,RD,0],[0,RD,0]]),fill:'url(#mFloorHeat)'},F);
+  const ao = (pts, a, b, id) => { grad(id, prj(...a), prj(...b), [[0,'#2b2117',.28],[1,'#2b2117',0]]); mk('polygon',{points:ptsW(pts),fill:`url(#${id})`},F); };
+  ao([[0,0,0],[0.5,0,0],[0.5,RD,0],[0,RD,0]],[0,2,0],[0.5,2,0],'mAoE');
+  ao([[0,0,0],[RW,0,0],[RW,0.5,0],[0,0.5,0]],[3,0,0],[3,0.5,0],'mAoS');
+  mk('polygon',{points:ptsW([[1.55,1.75,0.01],[5.25,1.75,0.01],[5.25,4.25,0.01],[1.55,4.25,0.01]]),fill:'#7C8F8C',stroke:'#5E706D','stroke-width':.8},F);
+  mk('polygon',{points:ptsW([[1.75,1.95,0.012],[5.05,1.95,0.012],[5.05,4.05,0.012],[1.75,4.05,0.012]]),fill:'none',stroke:'#E7E1D2','stroke-width':1.1,opacity:.7},F);
+  const loop = [[0.18,1.2,0.02],[0.8,0.5,0.02]];
+  { let yy = 0.5, dir = 1; while (yy <= 5.0){ loop.push([dir>0?6.6:0.8, yy, 0.02]); yy += 0.45; if (yy<=5.0) loop.push([dir>0?6.6:0.8, yy, 0.02]); dir = -dir; } loop.push([0.8, loop[loop.length-1][1], 0.02], [0.18,1.35,0.02]); }
+  E.ufhGlow = mk('path',{d:pathW(loop),fill:'none','stroke-width':7,'stroke-linejoin':'round',filter:'url(#mB2)'},F);
+  E.ufh = mk('path',{d:pathW(loop),fill:'none','stroke-width':2.2,'stroke-linejoin':'round','stroke-dasharray':'10 7'},F);
+  E.patch = mk('polygon',{'clip-path':'url(#mFloor)',filter:'url(#mB2)'},F);
+
+  /* pipes and wall devices */
+  const V = LY.devWall;
+  E.pRet = pipe(V, pathW([[0.75,6.9,0.1],[0.62,6.9,0.1],[0.62,1.1,0.1],[0.18,1.1,0.15]])+' '+pathW([[0.62,1.1,0.1],[0.62,0.2,0.1],[6.05,0.2,0.1],[6.05,0.2,2.18]]));
+  E.pFlow = pipe(V, pathW([[0.75,6.6,0.1],[0.45,6.6,0.1],[0.45,1.3,0.1],[0.18,1.3,0.15]])+' '+pathW([[0.45,1.3,0.1],[0.45,0.1,0.1],[5.8,0.1,0.1],[5.8,0.1,2.18]]));
+  const dg = id => mk('g',{id:'dev-'+id,class:'dev'},V);
+  let g = dg('ufh'); box3(g, 0,0.2,0.85,1.55,0.12,0.8,'#F2F3F1');
+  mk('polygon',{points:ptsW([[0.202,0.95,0.55],[0.202,1.45,0.55],[0.202,1.45,0.65],[0.202,0.95,0.65]]),fill:'#DDE1DE',stroke:'#9AA3A6','stroke-width':.5},g);
+  E.valve = mk('polygon',{},g);
+  g = dg('ts'); box3(g, 0,0.035,2.43,2.77,1.33,1.77,'#F7F8F6');
+  mk('polygon',{points:ptsW([[0.037,2.47,1.47],[0.037,2.73,1.47],[0.037,2.73,1.72],[0.037,2.47,1.72]]),fill:'#18303C'},g);
+  g = dg('ip'); box3(g, 0,0.1,4.43,4.92,2.18,2.44,'#E6E9E7');
+  mk('path',{d:pathW([[0.101,4.5,2.36],[0.101,4.62,2.36]]),stroke:'#6CBB51','stroke-width':2},g);
+  g = dg('aw'); box3(g, 1.15,1.55,0,0.12,2.3,2.5,'#E6E9E7');
+  g = dg('fcu'); box3(g, 5.18,6.62,0,0.18,2.18,2.62,'#F3F4F2');
+  mk('polygon',{points:ptsW([[5.28,0.182,2.25],[6.52,0.182,2.25],[6.52,0.182,2.55],[5.28,0.182,2.55]]),fill:'#20292E',opacity:.85},g);
+  E.slats = [2.28,2.34,2.40,2.46,2.52].map(z => mk('path',{d:pathW([[5.3,0.184,z],[6.5,0.184,z]]),stroke:'#D8DCDA','stroke-width':1.6,'stroke-linecap':'round'},g));
+  E.wcG = dg('wc');
+
+  /* opening sash */
+  E.sashF = mk('polygon',{fill:'#F7F7F4',stroke:'#6F797C','stroke-width':1},LY.sash);
+  E.sashG = mk('polygon',{fill:'url(#mGlass)',stroke:'#AEB6B8','stroke-width':.5},LY.sash);
+  E.sashH = mk('path',{stroke:'#6B7478','stroke-width':2,'stroke-linecap':'round'},LY.sash);
+
+  /* furniture */
+  const FU = LY.furn;
+  const contact = (x0,x1,y0,y1,op) => mk('polygon',{points:ptsW([[x0-0.05,y0,0],[x1+0.12,y0,0],[x1+0.12,y1+0.14,0],[x0-0.05,y1+0.14,0]]),fill:'#20170f',opacity:op||.28,filter:'url(#mB4)'},FU);
+  contact(0.45,0.8,4.75,5.1,.22);
+  { const b = prj(0.62,4.92,0), t = prj(0.62,4.92,1.45);
+    mk('ellipse',{cx:f1(b[0]),cy:f1(b[1]),rx:9,ry:4.5,fill:'#3B4246'},FU);
+    mk('path',{d:`M${f1(b[0])} ${f1(b[1])} L${f1(t[0])} ${f1(t[1])}`,stroke:'#3B4246','stroke-width':2},FU);
+    const sh = ring('z',[0.62,4.92,1.45],0.26,24).map(p=>prj(...p)), sl = ring('z',[0.62,4.92,1.72],0.17,24).map(p=>prj(...p));
+    mk('polygon',{points:ptsS(hull([...sh,...sl])),fill:'#EFE6D2',stroke:'#B7AA8E','stroke-width':.7},FU);
+    E.lampPos = prj(0.62,4.92,1.5); }
+  contact(2.8,3.9,2.4,3.0);
+  [[2.85,2.45],[3.8,2.45],[2.85,2.9],[3.8,2.9]].forEach(([x,y]) => box3(FU, x,x+0.05,y,y+0.05,0,0.34,'#6B4F37'));
+  box3(FU, 2.8,3.9,2.4,3.0,0.34,0.4,'#8A6847');
+  box3(FU, 3.1,3.35,2.55,2.8,0.4,0.43,'#E8E2D4');
+  contact(2.0,4.7,3.55,4.55,.32);
+  box3(FU, 2.25,4.45,3.6,4.3,0.1,0.44,SOFA);
+  box3(FU, 2.28,3.34,3.63,4.18,0.44,0.52,'#6C818A'); box3(FU, 3.36,4.42,3.63,4.18,0.44,0.52,'#6C818A');
+  box3(FU, 2.0,2.25,3.55,4.55,0.1,0.64,SOFA); box3(FU, 4.45,4.7,3.55,4.55,0.1,0.64,SOFA);
+  box3(FU, 2.25,4.45,4.25,4.55,0.1,0.92,SOFA);
+
+  /* air and light */
+  E.gust = []; for (let k=0;k<9;k++) E.gust.push({x:5.45+(k%3)*0.45, ph:k/9, el:mk('path',{fill:'none','stroke-width':2.2,'stroke-linecap':'round'},LY.air)});
+  E.wisp = []; for (let k=0;k<12;k++) E.wisp.push({k, ph:(k*0.37)%1, el:mk('path',{fill:'none','stroke-width':2,'stroke-linecap':'round'},LY.air)});
+  E.shaft = mk('polygon',{fill:'url(#mShaft)','clip-path':'url(#mRoom)',filter:'url(#mB4)'},LY.light);
+
+  /* front: floor section and cut walls */
+  const Fr = LY.front;
+  E.secDots = [];
+  const layers = [[0,-0.03,'#B98F5E'],[-0.03,-0.12,'#C9C3B7'],[-0.12,-0.2,'url(#mIns)'],[-0.2,-0.35,'#A8A39A']];
+  ['y','x'].forEach(face => {
+    layers.forEach(([z0,z1,fill]) => {
+      const pts = face==='y' ? [[-WT,RD+WT,z1],[RW+WT,RD+WT,z1],[RW+WT,RD+WT,z0],[-WT,RD+WT,z0]] : [[RW+WT,-WT,z1],[RW+WT,RD+WT,z1],[RW+WT,RD+WT,z0],[RW+WT,-WT,z0]];
+      mk('polygon',{points:ptsW(pts),fill,stroke:'#5b574f','stroke-width':.5},Fr);
+    });
+    if (face==='x') for (let y=0.5; y<=5.0; y+=0.45){ const q = prj(RW+WT,y,-0.075); E.secDots.push(mk('circle',{cx:f1(q[0]),cy:f1(q[1]),r:2.4},Fr)); }
+  });
+  box3(Fr, RW,RW+WT,0,RD,0,0.5,'#E4DED3',{t:POCHE}); box3(Fr, -WT,RW+WT,RD,RD+WT,0,0.5,'#E4DED3',{t:POCHE});
+  mk('path',{d:pathW([[-WT,RD+WT,0.5],[-WT,RD+WT,RH],[RW+WT,RD+WT,RH],[RW+WT,-WT,RH]])+' '+pathW([[RW+WT,RD+WT,0.5],[RW+WT,RD+WT,RH]]),fill:'none',stroke:'#ffffff','stroke-width':1,'stroke-dasharray':'3 5',opacity:.55},Fr);
+
+  /* outside: heat pump and weather station */
+  const O = LY.outside;
+  g = mk('g',{id:'dev-hp',class:'dev'},O);
+  mk('polygon',{points:ptsW([[0.6,6.45,GZ],[2.55,6.45,GZ],[2.55,7.5,GZ],[0.6,7.5,GZ]]),fill:'#1b1b14',opacity:.3,filter:'url(#mB4)'},g);
+  box3(g, 0.55,2.45,6.4,7.35,GZ,GZ+0.1,'#BDB6A8');
+  box3(g, 0.7,2.3,6.5,7.2,HPZ0,HPZ1,'#F4F5F3',{sw:.7});
+  E.hc = [1.28,7.201,(HPZ0+HPZ1)/2-0.02];
+  mk('polygon',{points:ptsW(ring('y',E.hc,0.42,40)),fill:'#232B30'},g);
+  E.hpBlades = [0,1,2].map(() => mk('path',{fill:'#4A555C'},g));
+  [0.42,0.32,0.22].forEach(r => mk('polygon',{points:ptsW(ring('y',E.hc,r,40)),fill:'none',stroke:'#BFC5C7','stroke-width':.8},g));
+  mk('polygon',{points:ptsW(ring('y',E.hc,0.05,16)),fill:'#BFC5C7'},g);
+  for (let k=0;k<6;k++){ const y = 6.6 + k*0.1; mk('path',{d:pathW([[2.301,y,HPZ0+0.15],[2.301,y,HPZ1-0.12]]),stroke:'#C9CECC','stroke-width':1.2},g); }
+  mk('polygon',{points:ptsW([[1.85,7.202,HPZ1-0.22],[2.18,7.202,HPZ1-0.22],[2.18,7.202,HPZ1-0.12],[1.85,7.202,HPZ1-0.12]]),fill:'#D9DDDB',stroke:'#AEB5B7','stroke-width':.5},g);
+  mk('path',{d:pathW([[0.85,6.5,GZ+0.3],[0.85,6.2,GZ+0.3],[0.85,6.2,0.1]]),stroke:'#262B2E','stroke-width':6,'stroke-linecap':'round',fill:'none'},O);
+  mk('path',{d:pathW([[6.3,-0.12,RH],[6.3,-0.12,3.4]]),stroke:'#4B555B','stroke-width':2},O);
+  g = mk('g',{id:'dev-ws',class:'dev'},O);
+  box3(g, 6.14,6.46,-0.24,0.0,3.4,3.58,'#EEF0EE');
+  mk('polygon',{points:ptsW(ring('z',[6.3,-0.12,3.585],0.1,16)),fill:'#2E3A40'},g);
+
+  /* heat-loss arrows */
+  E.arFab = mk('polygon',{stroke:'#fff','stroke-width':1,'stroke-opacity':.7},LY.arrows);
+  E.arGlz = mk('polygon',{stroke:'#fff','stroke-width':1,'stroke-opacity':.7},LY.arrows);
+  E.arFabT = mk('text',{'text-anchor':'middle','font-size':11.5,'font-weight':650,fill:'#15232C','paint-order':'stroke',stroke:'#FBFCFA','stroke-width':3,'stroke-linejoin':'round'},LY.arrows);
+
+  /* KNX bus in a cable duct */
+  const B = LY.bus;
+  mk('polyline',{points:ptsS(busS),fill:'none',stroke:'#B9C2BC','stroke-width':7.8,'stroke-linejoin':'round','stroke-linecap':'round',opacity:.35},B);
+  mk('polyline',{points:ptsS(busS),fill:'none',stroke:'#F4F6F3','stroke-width':7,'stroke-linejoin':'round','stroke-linecap':'round',opacity:.9},B);
+  mk('polyline',{points:ptsS(busS),fill:'none',stroke:'#3C8C2A','stroke-width':2.2,'stroke-linejoin':'round'},B);
+  [[[0.1,4.67,2.75],[0.05,4.67,2.44]],[[5.9,0.1,2.75],[5.9,0.09,2.62]],[[0.1,2.6,2.75],[0.04,2.6,1.77]],[[0.1,1.2,2.75],[0.1,1.2,0.8]],[[1.35,0.1,2.75],[1.35,0.08,2.5]]]
+    .forEach(d => mk('path',{d:pathW(d),stroke:'#3C8C2A','stroke-width':1.6,fill:'none'},B));
+  E.wcDrop = mk('path',{stroke:'#3C8C2A','stroke-width':1.6,fill:'none'},B);
+
+  /* night and golden-hour light */
+  E.veilGold = mk('rect',{x:0,y:0,width:1000,height:720,fill:'#F3A55E',style:'mix-blend-mode:multiply'},LY.veil);
+  E.veilNight = mk('rect',{x:0,y:0,width:1000,height:720,fill:'#1F2B47',style:'mix-blend-mode:multiply'},LY.veil);
+  const EM = LY.emit;
+  E.lampGlow = mk('ellipse',{cx:f1(E.lampPos[0]+40),cy:f1(E.lampPos[1]+30),rx:230,ry:150,fill:'url(#mLamp)','clip-path':'url(#mRoom)',style:'mix-blend-mode:screen'},EM);
+  E.lampBulb = mk('ellipse',{cx:f1(E.lampPos[0]),cy:f1(E.lampPos[1]+4),rx:9,ry:4,fill:'#FFE3A8',filter:'url(#mGlow)'},EM);
+  mk('polygon',{points:ptsW([[0.039,2.5,1.52],[0.039,2.7,1.52],[0.039,2.7,1.68],[0.039,2.5,1.68]]),fill:'#7FD6A0',opacity:.75,filter:'url(#mGlow)'},EM);
+  { const q = prj(2.1,7.202,HPZ0+0.18); E.hpLed = mk('circle',{cx:f1(q[0]),cy:f1(q[1]),r:2.6},EM); }
+  { const q = prj(6.46,-0.12,3.49); mk('circle',{cx:f1(q[0]),cy:f1(q[1]),r:2,fill:'#9BE27E'},EM); }
+  E.wcLed = mk('circle',{r:2},EM);
+  E.winGlow = mk('polygon',{fill:'#FFD27F',style:'mix-blend-mode:screen'},EM);
+
+  /* label cards */
+  E.chips = {
+    ws:chip([6.46,-0.12,3.5], 790, 186, 'Weather station', '1.1.1'),
+    aw:chip([1.35,0.05,2.52], 480, 168, 'Awning', '1.1.50'),
+    fcu:chip([6.62,0.18,2.45], 790, 262, 'Fan coil vent', '1.1.30'),
+    win:chip(() => { const w = winG(); return [w.x1-0.1, gY, w.z0+0.25]; }, 790, 338, 'Window', '1.1.60'),
+    ip:chip([0.05,4.67,2.44], 200, 214, 'IP router, time master', '1.1.0'),
+    ts:chip([0.03,2.6,1.77], 200, 268, 'Room controller', '1.1.10'),
+    ufh:chip([0.2,1.2,0.8], 200, 322, 'Floor heating manifold', '1.1.20'),
+    hp:chip([0.7,7.2,HPZ1-0.1], 150, 470, 'Heat pump', '1.1.40')
+  };
+  E.focus = mk('circle',{r:26,class:'focusRing',style:'display:none'},LY.labels);
+  E.pool = []; for (let i=0;i<24;i++) E.pool.push(mk('circle',{r:4,fill:'#9BE27E',filter:'url(#mGlow)',style:'display:none'},LY.pulses));
+}
+
+let winKey = '';
+function buildWindow(){
+  const w = winG();
+  E.wallS.setAttribute('d', pathW([[0,0,0],[RW,0,0],[RW,0,RH],[0,0,RH]],true)+' '+pathW([[w.x0,0,w.z0],[w.x0,0,w.z1],[w.x1,0,w.z1],[w.x1,0,w.z0]],true));
+  E.winBack.innerHTML = ''; E.reveal.innerHTML = ''; E.awCas.innerHTML = ''; E.wcG.innerHTML = ''; E.skirtS.innerHTML = '';
+  const quad = (x0,x1,z0,z1,y) => [[x0,y,z0],[x1,y,z0],[x1,y,z1],[x0,y,z1]];
+  E.glassL = mk('polygon',{points:ptsW(quad(w.x0,w.xm,w.z0,w.z1,gY)),fill:'url(#mGlass)'},E.winBack);
+  mk('polygon',{points:ptsW(quad(w.xm,w.x1,w.z0,w.z1,gY)),fill:'url(#mGlass)'},E.winBack);
+  const fr = (x0,x1,z0,z1) => mk('polygon',{points:ptsW(quad(x0,x1,z0,z1,gY)),fill:'#F7F7F4',stroke:'#9AA3A6','stroke-width':.6},E.winBack);
+  fr(w.x0,w.x1,w.z1-0.07,w.z1); fr(w.x0,w.x1,w.z0,w.z0+0.07); fr(w.x1-0.07,w.x1,w.z0,w.z1); fr(w.xm-0.04,w.xm+0.04,w.z0,w.z1);
+  E.frL = mk('g',{},E.winBack);
+  mk('polygon',{points:ptsW(quad(w.x0,w.x0+0.07,w.z0,w.z1,gY)),fill:'#F7F7F4',stroke:'#9AA3A6','stroke-width':.6},E.frL);
+  mk('polygon',{points:ptsW(quad(w.x0,w.xm,w.z1-0.07,w.z1,gY+0.001)),fill:'#F7F7F4',stroke:'#9AA3A6','stroke-width':.6},E.frL);
+  mk('polygon',{points:ptsW([[w.x0,-WT,w.z0],[w.x0,0,w.z0],[w.x0,0,w.z1],[w.x0,-WT,w.z1]]),fill:shade(PLASTER_S,-.1),stroke:'#8E8A80','stroke-width':.5},E.reveal);
+  mk('polygon',{points:ptsW([[w.x0-0.05,-WT,w.z0],[w.x1+0.05,-WT,w.z0],[w.x1+0.05,0.06,w.z0],[w.x0-0.05,0.06,w.z0]]),fill:'#F4F3EF',stroke:'#9AA3A6','stroke-width':.6},E.reveal);
+  const sk = (xa,xb) => { if (xb-xa > 0.02) mk('polygon',{points:ptsW([[xa,0.012,0],[xb,0.012,0],[xb,0.012,0.08],[xa,0.012,0.08]]),fill:'#F6F4EF',stroke:'#B8B2A6','stroke-width':.5},E.skirtS); };
+  if (w.z0 > 0.1) sk(0,RW); else { sk(0,w.x0-0.05); sk(w.x1+0.05,RW); }
+  box3(E.awCas, w.x0-0.14,w.x1+0.14,-WT-0.18,-WT,2.36,2.56,'#E9ECEA');
+  box3(E.wcG, w.x0+0.12,w.x0+0.42,0,0.05,w.z1+0.04,w.z1+0.13,'#F7F8F6');
+  const xc = w.x0 + 0.27;
+  E.wcDrop.setAttribute('d', pathW([[xc,0.1,2.75],[xc,0.05,w.z1+0.13]]));
+  const lq = prj(w.x0+0.4, 0.051, w.z1+0.085); E.wcLed.setAttribute('cx', f1(lq[0])); E.wcLed.setAttribute('cy', f1(lq[1]));
+  DEV.wc.tap = [xc,0.1,2.75]; DEV.wc.s = locate(prj(...DEV.wc.tap));
+  FOCUS.wc = [xc, 0.05, w.z1+0.09];
+  E.winGlow.setAttribute('points', ptsW(quad(w.x0,w.x1,w.z0,w.z1,gY)));
+}
+
+/* ---------- bus telegram animation ---------- */
+const pulses = [];
+const flash = {};
+function launchPulse(src, dst){
+  if (quiet) return;
+  const now = performance.now();
+  flash[src] = {t:now, kind:'tx'};
+  (dst||[]).forEach(d => flash[d] = {t:now+160, kind:'rx'});
+  if (pulses.length > 20) return;
+  const s0 = DEV[src].s;
+  pulses.push({s:s0, dir:-1}, {s:s0, dir:1});
+}
+
+/* ---------- UI construction ---------- */
+function pad(n){ return String(n).padStart(2,'0'); }
+function clockStr(t){ const s=t%86400; return pad(Math.floor(s/3600))+':'+pad(Math.floor(s%3600/60)); }
+function watts(w){ const a=Math.abs(w); const sg = w<0?'−':''; return a>=1000 ? sg+(a/1000).toFixed(2)+' kW' : sg+Math.round(a)+' W'; }
+
+const speeds = [[1,'Real time'],[60,'1 s = 1 min'],[300,'1 s = 5 min'],[1800,'1 s = 30 min']];
+function buildSeg(el, items, getter, setter){
+  el.innerHTML = '';
+  items.forEach(([val,label]) => {
+    const b = document.createElement('button');
+    b.type='button'; b.textContent=label; b.dataset.v=val;
+    b.addEventListener('click', () => { setter(val); refreshSeg(el, getter); });
+    el.appendChild(b);
+  });
+  refreshSeg(el, getter);
+}
+function refreshSeg(el, getter){ el.querySelectorAll('button').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.v == String(getter())))); }
+
+buildSeg($('speedSeg'), speeds, () => P.speed, v => P.speed = +v);
+buildSeg($('hcSeg'), [['auto','Automatic'],['heat','Heat'],['cool','Cool']], () => P.hcSel, v => { P.hcSel=v; immediate(); });
+buildSeg($('shSeg'), [['thermal','Automatic'],['track','Sun tracking only'],['manual','Manual']], () => P.shadeMode, v => { P.shadeMode=v; immediate(); });
+buildSeg($('hvSeg'), [['auto','Time schedule'],['1','Comfort'],['2','Standby'],['3','Night'],['4','Protection']], () => P.hvSel, v => { P.hvSel=v; immediate(); });
+
+const SL = [
+  {g:'Weather', k:'month', l:'Month (sun height)', min:1, max:12, step:1, u:'', d:0, fmt:v=>['January','February','March','April','May','June','July','August','September','October','November','December'][v-1]},
+  {g:'Weather', k:'toutMean', l:'Daily mean outdoor temperature', min:-5, max:35, step:0.5, u:'°C', d:1},
+  {g:'Weather', k:'toutSwing', l:'Day to night swing', min:0, max:10, step:0.5, u:'K', d:1},
+  {g:'Weather', k:'solarM2', l:'Solar gain per m² of glass at full sun', min:0, max:700, step:10, u:'W/m²', d:0},
+  {g:'Building', k:'UAf', l:'Walls, roof and floor heat loss', min:30, max:300, step:5, u:'W/K', d:0, hint:true},
+  {g:'Building', k:'facade', l:'Window faces', min:90, max:270, step:5, u:'°', d:0, fmt:v=>{const n=['East','South-east','South','South-west','West'][Math.round((v-90)/45)]; return n+' '+v+'°';}},
+  {g:'Building', k:'area', l:'Floor area', min:20, max:80, step:1, u:'m²', d:0},
+  {g:'Building', k:'rh', l:'Indoor relative humidity', min:30, max:85, step:1, u:'%', d:0},
+  {g:'Comfort', k:'base', l:'Base comfort setpoint', min:16, max:28, step:0.5, u:'°C', d:1},
+  {g:'Cost', k:'tariff', l:'Electricity tariff', min:0.05, max:0.6, step:0.01, u:'€/kWh', d:2},
+  {g:'Sun protection', k:'wind', l:'Wind speed', min:0, max:20, step:0.5, u:'m/s', d:1},
+  {g:'Sun protection', k:'shadeManual', l:'Manual awning position', min:0, max:100, step:5, u:'%', d:0}
+];
+const slHost = $('sliders'); let lastG='';
+SL.forEach(s => {
+  if (s.g !== lastG){ const h=document.createElement('h3'); h.textContent=s.g; slHost.appendChild(h); lastG=s.g; }
+  const w = document.createElement('div'); w.className='ctl';
+  w.innerHTML = `<label for="sl_${s.k}">${s.l}</label><output id="o_${s.k}"></output><input type="range" id="sl_${s.k}" min="${s.min}" max="${s.max}" step="${s.step}">` + (s.hint?`<span class="hint" id="h_${s.k}"></span>`:'');
+  slHost.appendChild(w);
+  const inp = w.querySelector('input');
+  inp.value = P[s.k];
+  inp.addEventListener('input', () => { P[s.k] = +inp.value; if (s.k==='shadeManual'){ P.shadeMode='manual'; refreshSeg($('shSeg'), () => P.shadeMode); } syncSliders(); immediate(); });
+});
+function syncSliders(){
+  SL.forEach(s => {
+    $('sl_'+s.k).value = P[s.k];
+    $('o_'+s.k).textContent = s.fmt ? s.fmt(P[s.k]) : (+P[s.k]).toFixed(s.d).replace('-','−') + ' ' + s.u;
+  });
+  const Hc = P.UAf + K.Ug[P.glaz]*P.winW*P.winH + 0.34*0.5*P.area*2.7;
+  const tau = (P.area*50000 + P.area*140000)/Hc/3600;
+  $('h_UAf').textContent = `With the window closed the room loses ${Math.round(Hc)} W/K in total, ${watts(Hc*21)} at 0 °C outdoor and 21 °C inside. Room time constant about ${tau.toFixed(0)} h.`;
+}
+const PRESETS = [
+  ['Limassol January', {month:1, toutMean:12, toutSwing:5, rh:65, solarM2:370}],
+  ['Troodos cold snap', {month:1, toutMean:2, toutSwing:4, rh:75, solarM2:205}],
+  ['Spring shoulder', {month:4, toutMean:19, toutSwing:6, rh:55, solarM2:370}],
+  ['Limassol August', {month:8, toutMean:30, toutSwing:6, rh:62, solarM2:410}]
+];
+PRESETS.forEach(([name, vals]) => {
+  const b=document.createElement('button'); b.type='button'; b.textContent=name;
+  b.addEventListener('click', () => { Object.assign(P, vals); syncSliders(); immediate(); });
+  $('presets').appendChild(b);
+});
+$('fcuEn').addEventListener('change', e => { P.fcuEnable = e.target.checked; immediate(); });
+buildSeg($('winSeg'), [['closed','Closed'],['tilt','Tilted'],['open','Open']], () => P.winOpen, v => { P.winOpen = v; immediate(); });
+buildSeg($('glzSeg'), [['single','Single'],['double','Double'],['lowe','Low-e double'],['triple','Triple']], () => P.glaz, v => { P.glaz = v; syncWin(); syncSliders(); immediate(); });
+['winW','winH'].forEach(k => $(k).addEventListener('input', e => { P[k] = +e.target.value; syncWin(); syncSliders(); immediate(); }));
+function syncWin(){
+  $('winW').value = P.winW; $('winH').value = P.winH;
+  $('o_winW').textContent = P.winW.toFixed(1)+' m'; $('o_winH').textContent = P.winH.toFixed(1)+' m';
+  const A = P.winW*P.winH, U = K.Ug[P.glaz];
+  $('winNote').textContent = `${A.toFixed(1)} m² of glass at U ${U} W/m²K loses ${(U*A).toFixed(1)} W for every degree between inside and outside, and lets in more sun as it grows. Opening or tilting the window switches the controller to building protection.`;
+}
+
+$('btnMinus').addEventListener('click', () => { P.shift = clamp(Math.round((P.shift-0.5)*2)/2, -3, 3); immediate(); });
+$('btnPlus').addEventListener('click', () => { P.shift = clamp(Math.round((P.shift+0.5)*2)/2, -3, 3); immediate(); });
+$('btnMode').addEventListener('click', () => {
+  const order = ['auto','1','2','3','4'];
+  P.hvSel = order[(order.indexOf(P.hvSel)+1) % order.length];
+  refreshSeg($('hvSeg'), () => P.hvSel); immediate();
+});
+$('btnPlay').addEventListener('click', () => {
+  P.playing = !P.playing;
+  $('btnPlay').textContent = P.playing ? 'Pause' : 'Run';
+});
+let dragging = false;
+const tod = $('tod');
+tod.addEventListener('pointerdown', () => dragging = true);
+window.addEventListener('pointerup', () => dragging = false);
+tod.addEventListener('input', () => {
+  S.t = S.day*86400 + (+tod.value)*3600;
+  S.hist = S.hist.filter(p => p.t <= S.t && p.t > S.t-86400);
+  S.lastHist = S.t; immediate();
+});
+$('clearMon').addEventListener('click', () => { log = []; monDirty = true; });
+
+function immediate(){ control(); derive(); checkTelegrams(); S.lastCtl = S.t; }
+
+/* GA table */
+const gaBody = $('gaBody');
+let lastGrp = '';
+GA.forEach(g => {
+  const grp = g.ga.split('/').slice(0,2).join('/');
+  if (grp !== lastGrp){
+    const r=document.createElement('tr'); r.className='grp';
+    r.innerHTML=`<td>${grp}</td><td colspan="4">${GROUPS[grp]}</td>`; gaBody.appendChild(r); lastGrp=grp;
+  }
+  const tr = document.createElement('tr');
+  tr.innerHTML = `<td class="ga">${g.ga}</td><td>${g.name}</td><td>${g.dpt}</td><td class="val"></td><td class="srcpill">${DEV[g.src].pa}</td>`;
+  g.row = tr; g.cell = tr.querySelector('.val');
+  gaBody.appendChild(tr);
+});
+
+buildScene();
+
+let hpA = 0, dash = 0, vOpen = 0, vTilt = 0;
+function animate(rdt, now){
+  for (let i=pulses.length-1;i>=0;i--){
+    const p = pulses[i]; p.s += p.dir*520*rdt;
+    if (p.s < 0 || p.s > busLen) pulses.splice(i,1);
+  }
+  E.pool.forEach((c,i) => { const p=pulses[i]; if (p){ const q=busAt(p.s); c.style.display=''; c.setAttribute('cx',f1(q[0])); c.setAttribute('cy',f1(q[1])); } else c.style.display='none'; });
+  for (const id in DEV){
+    const el = $('dev-'+id); const f = flash[id];
+    const on = f && now >= f.t && now - f.t < 420;
+    el.classList.toggle('tx', !!(on && f.kind==='tx'));
+    el.classList.toggle('rx', !!(on && f.kind==='rx'));
+  }
+  if (E.focus.style.display !== 'none' && now > focusUntil) E.focus.style.display = 'none';
+  const m = reduced ? 0.25 : 1;
+  const rate = P.playing ? 1 : 0;
+  // heat pump fan behind the grille
+  hpA = (hpA + (S.hpOn ? 300 : 0)*rdt*m*rate) % 360;
+  const c = E.hc;
+  E.hpBlades.forEach((b,k) => {
+    const a0 = (hpA + k*120)*RAD, a1 = a0 + 0.55;
+    const p0 = prj(...c), pa = prj(c[0]+0.36*Math.cos(a0), c[1]+0.001, c[2]+0.36*Math.sin(a0)), pb = prj(c[0]+0.36*Math.cos(a1), c[1]+0.001, c[2]+0.36*Math.sin(a1));
+    b.setAttribute('d', `M${f1(p0[0])} ${f1(p0[1])} L${f1(pa[0])} ${f1(pa[1])} L${f1(pb[0])} ${f1(pb[1])} Z`);
+  });
+  dash -= (S.hpOn ? 8 + S.valve*0.4 : 0)*rdt*m*rate*3;
+  E.ufh.setAttribute('stroke-dashoffset', f1(dash));
+  // fan coil gusts
+  const gs = S.fan ? (0.28 + 0.2*S.fan)*m*rate : 0;
+  const gc = S.heating ? '#C8423F' : '#2379B5';
+  E.gust.forEach(g => {
+    if (!S.fan){ g.el.style.display = 'none'; return; }
+    g.ph = (g.ph + gs*rdt) % 1;
+    const t = g.ph, reach = 0.9 + 0.55*S.fan;
+    const y = 0.28 + t*reach, z = 2.3 - t*(0.35 + 0.25*S.fan), len = 0.22 + 0.1*S.fan;
+    const a = prj(g.x, y, z), b = prj(g.x + 0.06, y + len*0.5, z + 0.05), cc = prj(g.x, y + len, z - 0.03);
+    g.el.setAttribute('d', `M${f1(a[0])} ${f1(a[1])} Q${f1(b[0])} ${f1(b[1])} ${f1(cc[0])} ${f1(cc[1])}`);
+    g.el.setAttribute('stroke', gc);
+    g.el.setAttribute('opacity', (Math.sin(Math.PI*t)*(0.45 + 0.18*S.fan)).toFixed(2));
+    g.el.style.display = '';
+  });
+  // window sash swings or tilts in real time
+  const tO = P.winOpen === 'open' ? 1 : 0, tT = P.winOpen === 'tilt' ? 1 : 0;
+  const sp = 1.6*rdt;
+  const toward = (v, t) => v < t ? Math.min(t, v + sp) : Math.max(t, v - sp);
+  if (vTilt > 0.001 && tO) vTilt = toward(vTilt, 0); else if (vOpen > 0.001 && tT) vOpen = toward(vOpen, 0); else { vOpen = toward(vOpen, tO); vTilt = toward(vTilt, tT); }
+  const w = winG(), ws = w.xm - w.x0;
+  const moving = vOpen > 0.005 || vTilt > 0.005;
+  E.glassL.style.display = moving ? 'none' : '';
+  [E.sashF, E.sashG, E.sashH].forEach(e => e.style.display = moving ? '' : 'none');
+  if (moving){
+    const th = vOpen*58*RAD, ph = vTilt*11*RAD;
+    const pt = (u, z) => vOpen > 0.005 ? [w.x0 + u*Math.cos(th), gY + u*Math.sin(th), z] : [w.x0 + u, gY + (z - w.z0)*Math.sin(ph), w.z0 + (z - w.z0)*Math.cos(ph)];
+    const quad = (u0,u1,z0,z1) => [pt(u0,z0),pt(u1,z0),pt(u1,z1),pt(u0,z1)];
+    E.sashF.setAttribute('points', ptsW(quad(0,ws,w.z0,w.z1)));
+    E.sashG.setAttribute('points', ptsW(quad(0.07,ws-0.07,w.z0+0.07,w.z1-0.07)));
+    const hz = w.z0 + (w.z1-w.z0)*0.5;
+    E.sashH.setAttribute('d', pathW([pt(ws-0.035,hz-0.1), pt(ws-0.035,hz+0.1)]));
+  }
+  // air exchange through the opening
+  const openAmt = Math.max(vOpen, vTilt*0.45);
+  const flowK = clamp((D.Hopen||0)/250, 0, 1);
+  const inCol = D.To < S.Tr ? '#2379B5' : '#C8423F', outCol = D.To < S.Tr ? '#C8423F' : '#2379B5';
+  E.wisp.forEach(wp => {
+    if (openAmt < 0.05 || flowK < 0.01){ wp.el.style.display = 'none'; return; }
+    wp.ph = (wp.ph + (0.25 + 0.35*flowK)*rdt*m*rate) % 1;
+    const t = wp.ph, inflow = wp.k % 2 === 0;
+    const x = w.x0 + 0.2 + ((wp.k*0.31) % 1)*(ws - 0.4);
+    let a, b, cc;
+    if (inflow){
+      const zb = vTilt > vOpen ? w.z1 - 0.45 : w.z0 + 0.15 + (wp.k%3)*0.12;
+      const y = -0.1 + t*(1.4 + 1.2*flowK), z = Math.max(0.05, zb - t*(vTilt > vOpen ? 1.2 : 0.3));
+      a = prj(x,y,z); b = prj(x+0.05,y+0.2,z+0.04); cc = prj(x,y+0.4,z-0.03);
+    } else {
+      const zt = w.z1 - 0.15 - (wp.k%3)*0.1;
+      const y = 1.2 - t*2.2, z = zt + t*0.25;
+      a = prj(x,y,z); b = prj(x+0.05,y-0.2,z+0.05); cc = prj(x,y-0.4,z+0.02);
+    }
+    wp.el.setAttribute('d', `M${f1(a[0])} ${f1(a[1])} Q${f1(b[0])} ${f1(b[1])} ${f1(cc[0])} ${f1(cc[1])}`);
+    wp.el.setAttribute('stroke', inflow ? inCol : outCol);
+    wp.el.setAttribute('opacity', (Math.sin(Math.PI*t)*(0.35 + 0.5*flowK)*Math.min(1, openAmt*2)).toFixed(2));
+    wp.el.style.display = '';
+  });
+}
+
+let pathKey = '';
+function drawScene(){
+  const key = P.winW+'|'+P.winH;
+  if (key !== winKey){ buildWindow(); winKey = key; }
+  const w = winG();
+  const el = D.elev, up = D.up, h = hourOf(S.t);
+  const nightAmt = clamp(-el/7, 0, 1);
+  const lowSun = el > -4 ? clamp(1 - Math.abs(el-2)/14, 0, 1) : 0;
+  const dayAmt = clamp((el+2)/20, 0, 1);
+  $('sk1').setAttribute('stop-color', nightAmt > 0 ? mixHex('#6E6F9A','#0E1829', nightAmt) : mixHex('#6E86B4','#7FB6D8', dayAmt));
+  $('sk2').setAttribute('stop-color', nightAmt > 0 ? mixHex('#F0A472','#22324B', nightAmt) : mixHex('#F4C08F','#E3EEF1', dayAmt));
+  E.stars.setAttribute('opacity', (nightAmt*0.9).toFixed(2));
+  E.clouds.setAttribute('opacity', (dayAmt*0.75).toFixed(2));
+  E.moon.style.display = nightAmt > 0.6 ? '' : 'none';
+  E.veilNight.setAttribute('opacity', (nightAmt*0.62).toFixed(3));
+  E.veilGold.setAttribute('opacity', (lowSun*0.28*(1-nightAmt)).toFixed(3));
+  const lampAmt = (h >= 6 && h < 23.5) ? clamp((4-el)/10, 0, 1) : 0;
+  E.lampGlow.setAttribute('opacity', (lampAmt*0.95).toFixed(2));
+  E.lampBulb.setAttribute('opacity', lampAmt > 0.02 ? (0.4+0.6*lampAmt).toFixed(2) : '0');
+  E.winGlow.setAttribute('opacity', (nightAmt*0.08*(lampAmt > 0 ? 1 : 0.3)).toFixed(3));
+
+  // sun track across the sky, east on the left, west on the right
+  const pk = P.month+'|'+P.facade;
+  if (pk !== pathKey){
+    const pl = []; E.hours.innerHTML = '';
+    for (let t=0; t<=24; t+=0.1){ const s = sunPos(t*3600, P.month); if (s.el > -1) pl.push(skyPt(s.az, Math.max(0,s.el))); }
+    for (let t=0; t<24; t++){ const s = sunPos(t*3600, P.month); if (s.el > 0){ const q = skyPt(s.az, s.el); mk('circle',{cx:f1(q[0]),cy:f1(q[1]),r:2.2,fill:'#fff',opacity:.9},E.hours); } }
+    E.path.setAttribute('points', ptsS(pl));
+    E.cmp.forEach(([a,t]) => { const rel = ((a - P.facade + 540) % 360) - 180; t.style.display = Math.abs(rel) <= 135 ? '' : 'none'; t.setAttribute('x', f1(500 + rel/135*460)); });
+    const nd = dirOf(0, 0), a = prj(7.9,6.7,GZ), b = prj(7.9 + nd[0]*0.8, 6.7 + nd[1]*0.8, GZ);
+    E.north.setAttribute('d', `M${f1(a[0])} ${f1(a[1])} L${f1(b[0])} ${f1(b[1])}`);
+    E.northDot.setAttribute('cx', f1(b[0])); E.northDot.setAttribute('cy', f1(b[1]));
+    E.northT.setAttribute('x', f1(b[0] + (b[0]-a[0])*0.5)); E.northT.setAttribute('y', f1(b[1] + (b[1]-a[1])*0.5 + 5));
+    pathKey = pk;
+  }
+  E.path.setAttribute('opacity', (0.35 + 0.45*(1-nightAmt)).toFixed(2));
+  E.hours.setAttribute('opacity', (0.35 + 0.55*(1-nightAmt)).toFixed(2));
+  E.cmp.forEach(([,t]) => t.setAttribute('opacity', (0.45 + 0.4*(1-nightAmt)).toFixed(2)));
+  if (up){ const q = skyPt(D.az, el); E.sun.setAttribute('transform', `translate(${f1(q[0])} ${f1(q[1])})`); E.sun.style.display = ''; }
+  else E.sun.style.display = 'none';
+
+  // awning
+  const pw = S.shadePos/100*K.awL, yb = -WT-0.16, ty = yb-pw, tz = 2.45-0.28*pw;
+  const show = pw > 0.02, ax0 = w.x0 - 0.1, ax1 = w.x1 + 0.1;
+  E.awFab.setAttribute('points', ptsW([[ax0,yb,2.45],[ax1,yb,2.45],[ax1,ty,tz],[ax0,ty,tz]]));
+  E.awShade.setAttribute('points', ptsW([[ax0,yb,2.45],[ax1,yb,2.45],[ax1,yb-pw*0.35,2.45-0.28*pw*0.35],[ax0,yb-pw*0.35,2.45-0.28*pw*0.35]]));
+  let val = ''; const n = Math.max(6, Math.round((ax1-ax0)*3.6));
+  for (let i=0;i<=n;i++){ const a = prj(ax0 + (ax1-ax0)*i/n, ty, tz); val += (i?'L':'M')+f1(a[0])+' '+f1(a[1]); }
+  for (let i=n;i>0;i--){ const x0 = ax0 + (ax1-ax0)*i/n, x1 = ax0 + (ax1-ax0)*(i-1)/n;
+    const b0 = prj(x0,ty,tz-0.12), mm = prj((x0+x1)/2,ty,tz-0.2), b1 = prj(x1,ty,tz-0.12);
+    val += ` L${f1(b0[0])} ${f1(b0[1])} Q${f1(mm[0])} ${f1(mm[1])} ${f1(b1[0])} ${f1(b1[1])}`; }
+  E.awVal.setAttribute('d', val+' Z');
+  E.awArms.setAttribute('d', pathW([[w.x0+0.1,-WT,1.95],[w.x0+0.1,ty,tz]])+' '+pathW([[w.x1-0.1,-WT,1.95],[w.x1-0.1,ty,tz]]));
+  [E.awFab, E.awShade, E.awVal, E.awArms].forEach(e => e.style.display = show ? '' : 'none');
+
+  // sunlight through the glass
+  const d = dirOf(D.az, el);
+  const zS = w.z1 - D.shadeFrac*(w.z1-w.z0);
+  E.winShade.setAttribute('points', ptsW([[w.x0,gY+0.005,zS],[w.x1,gY+0.005,zS],[w.x1,gY+0.005,w.z1],[w.x0,gY+0.005,w.z1]]));
+  E.winShade.style.display = D.direct > 0 && D.shadeFrac > 0.01 ? '' : 'none';
+  if (D.direct > 0 && D.shadeFrac < 0.995 && d[2] > 0.01){
+    const cs = [[w.x0,w.z0],[w.x1,w.z0],[w.x1,zS],[w.x0,zS]];
+    const fl = cs.map(([x,z]) => { const t = Math.min(40, z/d[2]); return [x - d[0]*t, -d[1]*t, 0.015]; });
+    E.patch.setAttribute('points', ptsW(fl));
+    E.shaft.setAttribute('points', ptsS(hull([...cs.map(([x,z]) => [x,0,z]), ...fl].map(p => prj(...p)))));
+    E.patch.setAttribute('fill', mixHex('#FFB35C','#FFF1C4', dayAmt));
+    E.patch.setAttribute('opacity', (0.25 + 0.5*D.direct).toFixed(2));
+    E.shaft.setAttribute('opacity', (0.35 + 0.5*D.direct).toFixed(2));
+    E.patch.style.display = ''; E.shaft.style.display = '';
+  } else { E.patch.style.display = 'none'; E.shaft.style.display = 'none'; }
+
+  // water, floor and equipment state
+  const ufhOn = S.hpOn && S.valve > 0;
+  const loopC = ufhOn ? waterColor(D.Tufh) : waterColor(S.Ts);
+  E.ufh.setAttribute('stroke', loopC); E.ufhGlow.setAttribute('stroke', loopC);
+  E.ufh.setAttribute('opacity', ufhOn ? (0.4 + S.valve/400).toFixed(2) : '0.28');
+  E.ufhGlow.setAttribute('opacity', ufhOn ? '0.2' : '0.08');
+  E.secDots.forEach(cd => cd.setAttribute('fill', loopC));
+  const fd = S.Ts - S.Tr;
+  $('fh1').setAttribute('stop-color', fd >= 0 ? '#C8423F' : '#2379B5'); $('fh2').setAttribute('stop-color', fd >= 0 ? '#C8423F' : '#2379B5');
+  E.floorTint.setAttribute('opacity', clamp(Math.abs(fd)/3, 0, 1).toFixed(2));
+  E.pFlow.setAttribute('stroke', S.hpOn ? waterColor(S.Tf) : '#9AA3A6');
+  E.pRet.setAttribute('stroke', S.hpOn ? waterColor(S.Tf + (S.heating ? -5 : 4)) : '#B7BDBF');
+  const vw = 0.5*S.valve/100;
+  E.valve.setAttribute('points', ptsW([[0.203,0.95,0.55],[0.203,0.95+vw,0.55],[0.203,0.95+vw,0.65],[0.203,0.95,0.65]]));
+  E.valve.setAttribute('fill', S.heating ? '#C8423F' : '#2379B5');
+  E.slats.forEach(sl => sl.setAttribute('stroke', S.fan ? (S.heating ? '#F0A39B' : '#9CCBEB') : '#D8DCDA'));
+  E.hpLed.setAttribute('fill', S.hpOn ? (S.heating ? '#FF6B5E' : '#5FB6FF') : '#8A9499');
+  const wOpen = P.winOpen !== 'closed';
+  E.wcLed.setAttribute('fill', wOpen ? '#F2B233' : '#9BE27E');
+
+  // heat flow through the envelope
+  const qf = D.Qfab, qg = D.Qglz + D.Qopen;
+  const drawAr = (elA, a, b, q) => {
+    const p0 = prj(...a), p1 = prj(...b), wd = clamp(Math.abs(q)/220, 3, 20);
+    elA.setAttribute('points', q >= 0 ? arrow(p0[0],p0[1],p1[0],p1[1],wd) : arrow(p1[0],p1[1],p0[0],p0[1],wd));
+    elA.setAttribute('fill', q >= 0 ? '#2379B5' : '#C8423F');
+    elA.setAttribute('opacity', Math.abs(q) < 30 ? '0.15' : '0.72');
+  };
+  drawAr(E.arFab, [5.4,4.3,RH+0.15], [5.4,4.3,RH+1.05], qf);
+  const zc = (w.z0 + w.z1)/2;
+  drawAr(E.arGlz, [w.xm+0.55,gY-0.05,zc], [w.xm+0.55,gY-1.15,zc+0.45], qg);
+  const ft = prj(5.4,4.3,RH+1.1);
+  E.arFabT.setAttribute('x', f1(ft[0])); E.arFabT.setAttribute('y', f1(ft[1]-8));
+  E.arFabT.textContent = `Walls and roof ${watts(Math.abs(qf))} ${qf >= 0 ? 'out' : 'in'}`;
+
+  // scene cards
+  const compass = a => ['N','NE','E','SE','S','SW','W','NW'][Math.round((((a%360)+360)%360)/45)%8];
+  $('scOut').textContent = n1(D.To)+' °C';
+  $('scSun').textContent = up ? `Sun ${Math.round(el)}° high in the ${compass(D.az)}` : 'Sun is down';
+  $('scWind').textContent = `Wind ${n1(P.wind)} m/s` + (S.windAlarm ? ', wind alarm' : '');
+  $('scRoom').textContent = n1(S.Tr)+' °C';
+  $('scMode').textContent = `Target ${n1(S.sp)} °C, ${HV[S.hv].toLowerCase()}`;
+  const pill = $('scPill'), st = roomState();
+  pill.textContent = st[0]; pill.style.setProperty('--c', st[1]);
+
+  // label cards
+  const glz = {single:'single glazing', double:'double glazing', lowe:'low-e double glazing', triple:'triple glazing'}[P.glaz];
+  const wState = P.winOpen === 'open' ? 'open' : P.winOpen === 'tilt' ? 'tilted' : 'closed';
+  const v2 = {
+    ws: S.windAlarm ? `Wind alarm, ${n1(P.wind)} m/s` : D.direct > 0 ? `${Math.round(D.facadeIrr)} W/m² on the window` : up ? 'No direct sun on the window' : `Wind ${n1(P.wind)} m/s`,
+    aw: S.windAlarm ? 'Retracted, wind alarm' : S.shadePos < 1 ? (S.heating && D.direct > 0 && P.shadeMode === 'thermal' ? 'Retracted, sun heats the room' : 'Retracted') : `${Math.round(S.shadePos)} % out, glass ${Math.round(D.shadeFrac*100)} % shaded`,
+    fcu: S.fan ? `Speed ${S.fan}, ${watts(D.Qfc)}` : (P.fcuEnable ? 'Off' : 'Disabled'),
+    win: `${P.winW.toFixed(1)} × ${P.winH.toFixed(1)} m, ${wState}, ${watts(Math.abs(qg))} ${qg >= 0 ? 'out' : 'in'}`,
+    ip: `Time ${clockStr(S.t)}`,
+    ts: `${n1(S.Tr)} °C, ${HV[S.hv]}`,
+    ufh: S.dewLock ? 'Dew-point lock' : `Valve ${Math.round(S.valve)} %, ${watts(D.Qsr)}`,
+    hp: S.hpOn ? `${S.heating ? 'Heating' : 'Cooling'}, flow ${n1(S.Tf)} °C` : (wOpen ? 'Stopped, window open' : 'Standby')
+  };
+  for (const k in E.chips){ E.chips[k].t2.textContent = v2[k]; layoutChip(E.chips[k]); }
+}
+
+/* ---------- UI refresh ---------- */
+function updateUI(){
+  derive();
+  const h = hourOf(S.t);
+  $('clockTime').textContent = clockStr(S.t);
+  $('clockDay').textContent = `${MONTHS[P.month-1]} · ${DAYS[S.day%7]}`;
+  if (!dragging) tod.value = (Math.floor(h*4)/4).toFixed(2);
+  $('todOut').textContent = clockStr(S.t);
+
+  drawScene();
+  const shTxt = {track:'Ignores heating and cooling and extends whenever sun on the facade is above 200 W/m², just far enough to shade the full window height.',
+    thermal:'Follows the heat/cool object 1/0/5: while the room controller is heating the awning stays retracted so the sun heats the room for free; in cooling it tracks the sun.',
+    manual:'Position set by hand from the slider above. Wind alarm still retracts it.'};
+  $('shNote').textContent = shTxt[P.shadeMode] + ` Wind alarm at ${K.windThr} m/s.`;
+  updateGlance();
+  if (!$('tip').hidden){ renderTip(); placeTip(); }
+  // thermostat
+  $('tsActual').textContent = n1(S.Tr);
+  $('tsSet').textContent = n1(S.sp)+' °C';
+  $('tsShift').textContent = 'shift '+(P.shift>0?'+':'')+n1(P.shift)+' K';
+  $('tsModeTxt').textContent = (P.hvSel==='auto' ? 'Auto, ' : '') + HV[S.hv];
+  $('icFlame').style.display = S.heating ? '' : 'none';
+  $('icSnow').style.display = S.heating ? 'none' : '';
+  $('tsValve').textContent = S.dewLock ? 'dew lock' : Math.round(S.valve)+'%';
+  $('tsFan').querySelectorAll('i').forEach((b,i)=>b.classList.toggle('on', i < S.fan));
+
+  // heat balance
+  const rows = [['Walls, roof and floor', -D.Qfab],['Window glass', -D.Qglz],['Air leakage', -D.Qinf],['Open window', -D.Qopen],['Solar, after awning', D.Qsol],['People and appliances', D.Qint],['Underfloor', D.Qsr],['Fan coil', D.Qfc]];
+  const mx = Math.max(800, ...rows.map(r=>Math.abs(r[1])));
+  let html = '';
+  rows.forEach(([n,v]) => {
+    const pct = Math.abs(v)/mx*50;
+    const style = v>=0 ? `left:50%;width:${pct}%;background:var(--heat)` : `right:50%;width:${pct}%;background:var(--cool)`;
+    html += `<span>${n}</span><div class="bar"><span style="${style}"></span></div><span class="v">${watts(v)}</span>`;
+  });
+  const rateKh = D.net*3600/D.Cr;
+  html += `<span class="net">Net into room</span><span class="net"></span><span class="v net">${watts(D.net)}</span>`;
+  $('bal').innerHTML = html;
+  $('balNote').textContent = `Room air is ${rateKh>=0?'warming':'cooling'} at ${Math.abs(rateKh).toFixed(2)} K per hour. Positive values add heat.` + (D.QsolFree-D.Qsol > 10 ? ` The awning is blocking ${watts(D.QsolFree-D.Qsol)} of sun.` : '');
+
+  // KPIs
+  $('kTh').textContent = watts(D.Pth);
+  $('kEl').textContent = watts(D.Pel);
+  $('kCop').textContent = S.hpOn ? D.cop.toFixed(2) : '–';
+  $('kCopL').textContent = S.heating ? 'COP now' : 'EER now';
+  $('kFlow').textContent = n1(S.flowSet)+' °C';
+  $('kEth').textContent = S.Eth.toFixed(2)+' kWh';
+  $('kEel').textContent = S.Eel.toFixed(2)+' kWh';
+  $('kCost').textContent = '€'+(S.Eel*P.tariff).toFixed(2);
+  $('kDcop').textContent = S.Eel > 0.05 ? (S.Eth/S.Eel).toFixed(2) : '–';
+  $('kBel').textContent = S.Bel.toFixed(2)+' kWh';
+  const svT = savePct(S.Eel, S.Bel);
+  $('kSave').textContent = svT === null ? '–' : fmtPct(svT);
+  $('yday').textContent = S.yday ? `Yesterday: ${S.yday.th.toFixed(1)} kWh heat moved, ${S.yday.el.toFixed(1)} kWh electricity, €${S.yday.cost.toFixed(2)}. Conventional control would have used ${S.yday.bel.toFixed(1)} kWh.` : 'Counters reset at midnight.';
+
+  // calculations
+  const Tc = S.heating ? S.Tf+3 : D.To+8, Te = S.heating ? D.To-6 : S.Tf-4;
+  $('calcs').innerHTML = `
+    <p class="calc"><b>Heat loss</b> H = walls and roof + U<sub>glass</sub> × A<sub>glass</sub> + air leakage + open window<br><span class="r">(${P.UAf} + ${K.Ug[P.glaz]} × ${D.Aw.toFixed(1)} + ${n1(D.Hinf)} + ${Math.round(D.Hopen)}) × (${n1(S.Tr)} − ${n1(D.To)}) = </span><b>${watts(D.Qloss)}</b></p>
+    <p class="calc"><b>Open window</b> airflow = 0.6 × A/3 × √(g × H × ΔT / T) + 0.025 × A × wind<br><span class="r">${P.winOpen === 'closed' ? 'Window closed, no extra airflow' : `${D.Qv.toFixed(2)} m³/s × 1200 J/m³K = ${Math.round(D.Hopen)} W/K`}</span></p>
+    <p class="calc"><b>Floor output</b> Q = h × A × (T<sub>slab</sub> − T<sub>room</sub>)<br><span class="r">${D.hsr} × ${P.area} × (${n1(S.Ts)} − ${n1(S.Tr)}) = </span><b>${watts(D.Qsr)}</b></p>
+    <p class="calc"><b>Water to slab</b> Q = valve × k × A × (T<sub>water</sub> − T<sub>slab</sub>)<br><span class="r">${(S.valve/100).toFixed(2)} × ${K.ws} × ${P.area} × (${n1(D.Tufh)} − ${n1(S.Ts)}) = </span><b>${watts(D.Qws)}</b></p>
+    <p class="calc"><b>Fan coil</b> Q = f<sub>speed</sub> × k × (T<sub>flow</sub> − T<sub>room</sub>)<br><span class="r">${K.fanFrac[S.fan]} × ${K.fc} × (${n1(S.Tf)} − ${n1(S.Tr)}) = </span><b>${watts(D.Qfc)}</b></p>
+    <p class="calc"><b>${S.heating?'COP':'EER'}</b> = η × T<sub>${S.heating?'cond':'evap'}</sub> / (T<sub>cond</sub> − T<sub>evap</sub>)<br><span class="r">0.45 × ${(( S.heating?Tc:Te)+273.15).toFixed(1)} K / (${n1(Tc)} − ${n1(Te)}) = </span><b>${D.cop.toFixed(2)}</b></p>
+    <p class="calc"><b>Electrical</b> P = Q<sub>th</sub> / ${S.heating?'COP':'EER'} + pump + fan<br><span class="r">${Math.round(D.Pth)} / ${D.cop.toFixed(2)} + ${S.hpOn?K.pump:0} + ${K.fanW[S.fan]} = </span><b>${watts(D.Pel)}</b></p>
+    <p class="calc"><b>Awning reach</b> projection needed = (gap + H<sub>window</sub>) / tan(profile angle)<br><span class="r">${D.direct>0 ? `(${K.awGap} + ${P.winH}) / tan(${n1(D.prof)}°) = ${((K.awGap+P.winH)/Math.tan(clamp(D.prof,1,89)*Math.PI/180)).toFixed(2)} m of ${K.awL} m max, shaded ${Math.round(D.shadeFrac*100)}%` : 'Sun below horizon'}</span></p>
+    <p class="calc"><b>Solar gain</b> Q = G × A<sub>glass</sub> × (0.85 × direct × (1 − ${K.awBlock} × shaded) + 0.15 × diffuse)<br><span class="r">${P.solarM2} × ${D.Aw.toFixed(1)} × (0.85 × ${D.direct.toFixed(2)} × (1 − ${K.awBlock} × ${D.shadeFrac.toFixed(2)}) + 0.15 × ${D.diff.toFixed(2)}) = </span><b>${watts(D.Qsol)}</b></p>
+    <p class="calc"><b>Sun position</b> sin(elevation) = sin φ sin δ + cos φ cos δ cos H, with φ = 34.7° N<br><span class="r">elevation ${n1(D.elev)}°, azimuth ${Math.round(D.az)}°, direct on glass = cos(elev) × cos(azimuth − ${P.facade}°) = ${D.direct.toFixed(2)}</span></p>
+    <p class="calc"><b>Heating curve</b> T<sub>flow</sub> = 30 + 0.6 × (15 − T<sub>out</sub>), limited 28 to 45 °C. Cooling runs 12 °C, with the floor loop mixed to at least dew point + 2 K.</p>`;
+
+  // GA table
+  const nowR = performance.now();
+  GA.forEach(g => {
+    const s = sent[g.ga];
+    g.cell.textContent = s ? g.f(s.v) : '–';
+    g.row.classList.toggle('hot', !!(s && nowR - s.real < 900));
+  });
+
+  if (monDirty){
+    $('monBody').innerHTML = log.slice(0,60).map(e => {
+      const g = GA.find(x=>x.ga===e.ga);
+      return `<tr><td>${clockStr(e.t)}</td><td>${DEV[e.src].pa}</td><td class="ga" title="${g.name}">${e.ga}</td><td class="hex">${e.raw}</td><td>${g.name}: <b>${e.txt}</b></td></tr>`;
+    }).join('');
+    monDirty = false;
+  }
+  drawChart();
+}
+
+/* ---------- chart ---------- */
+const cv = $('chart'), ctx = cv.getContext('2d');
+function cssVar(n){ return getComputedStyle(document.documentElement).getPropertyValue(n).trim(); }
+function drawChart(){
+  const dpr = window.devicePixelRatio || 1;
+  const W = cv.clientWidth, H = cv.clientHeight;
+  if (cv.width !== Math.round(W*dpr) || cv.height !== Math.round(H*dpr)){ cv.width = Math.round(W*dpr); cv.height = Math.round(H*dpr); }
+  ctx.setTransform(dpr,0,0,dpr,0,0);
+  ctx.clearRect(0,0,W,H);
+  const ink=cssVar('--ink'), ink2=cssVar('--ink2'), rule=cssVar('--rule'), heat=cssVar('--heat'), cool=cssVar('--cool'), elec=cssVar('--elec');
+  const L=38, R=44, T=8, B=22;
+  const pw = W-L-R, ph = H-T-B;
+  const tH = ph*0.7, pTop = T + ph*0.76, pH = ph*0.24;
+  const pts = S.hist; const t0 = S.t - 86400;
+  const X = t => L + (t - t0)/86400*pw;
+  let lo=Infinity, hi=-Infinity;
+  pts.forEach(p => { lo=Math.min(lo,p.Tr,p.sp,p.To,p.Ts); hi=Math.max(hi,p.Tr,p.sp,p.To,p.Ts); });
+  if (!isFinite(lo)){ lo=10; hi=30; }
+  lo = Math.floor(lo/5)*5; hi = Math.ceil(hi/5)*5; if (hi-lo<10) hi=lo+10;
+  const Y = v => T + tH - (v-lo)/(hi-lo)*tH;
+  ctx.font = '11px Archivo, system-ui, sans-serif';
+  ctx.lineWidth = 1; ctx.strokeStyle = rule; ctx.fillStyle = ink2;
+  ctx.textAlign='right'; ctx.textBaseline='middle';
+  for (let v=lo; v<=hi; v+=5){ ctx.beginPath(); ctx.moveTo(L,Y(v)); ctx.lineTo(W-R,Y(v)); ctx.stroke(); ctx.fillText(v+'°', L-6, Y(v)); }
+  ctx.textAlign='center'; ctx.textBaseline='top';
+  const firstH = Math.ceil(t0/21600)*21600;
+  for (let t=firstH; t<=S.t; t+=21600){ const x=X(t); ctx.beginPath(); ctx.moveTo(x,T); ctx.lineTo(x,T+ph); ctx.stroke(); ctx.fillText(clockStr(t), x, T+ph+6); }
+  if (pts.length < 2){ ctx.textAlign='left'; ctx.fillText('Collecting data…', L+8, T+8); return; }
+  // power area
+  let pmax = Math.max(1000, ...pts.map(p=>p.Pel));
+  ctx.fillStyle = elec; ctx.globalAlpha = .35;
+  ctx.beginPath(); ctx.moveTo(X(pts[0].t), pTop+pH);
+  pts.forEach(p => ctx.lineTo(X(p.t), pTop+pH - p.Pel/pmax*pH));
+  ctx.lineTo(X(pts[pts.length-1].t), pTop+pH); ctx.closePath(); ctx.fill();
+  ctx.globalAlpha = 1;
+  ctx.textAlign='left'; ctx.textBaseline='middle'; ctx.fillStyle = elec;
+  ctx.fillText(watts(pmax), W-R+4, pTop+2);
+  ctx.fillText('0', W-R+4, pTop+pH);
+  const line = (key, color, width, dashed) => {
+    ctx.strokeStyle=color; ctx.lineWidth=width; ctx.setLineDash(dashed?[5,4]:[]);
+    ctx.beginPath(); pts.forEach((p,i)=> i?ctx.lineTo(X(p.t),Y(p[key])):ctx.moveTo(X(p.t),Y(p[key]))); ctx.stroke();
+  };
+  ctx.globalAlpha=.55; line('Ts', ink2, 1.5); ctx.globalAlpha=1;
+  line('To', cool, 1.5);
+  line('sp', heat, 1.5, true);
+  line('Tr', ink, 2.2);
+  ctx.setLineDash([]);
+}
+window.addEventListener('resize', drawChart);
+
+/* ---------- customer demo: glance strip ---------- */
+function savePct(el, bel){ return bel > 0.3 ? (1 - el/bel)*100 : null; }
+function fmtPct(v){ return v >= 0 ? Math.round(v)+' %' : 'None'; }
+function roomState(){
+  if (P.winOpen !== 'closed') return ['Window open', 'var(--elec)'];
+  const dev = S.heating ? S.sp - S.Tr : S.Tr - S.sp;
+  return dev > 0.5 ? [S.heating ? 'Warming up' : 'Cooling down', S.heating ? 'var(--heat)' : 'var(--cool)']
+       : S.hv !== 1 ? [HV[S.hv] + ' setback', 'var(--ink2)']
+       : dev < -0.5 ? [S.heating ? 'Above target' : 'Below target', 'var(--elec)'] : ['Comfortable', 'var(--bus)'];
+}
+function updateGlance(){
+  const st = roomState();
+  $('gRoom').textContent = n1(S.Tr)+' °C';
+  $('gRoomS').innerHTML = `Target ${n1(S.sp)} °C <span class="pill" style="--c:${st[1]}">${st[0]}</span>`;
+  $('gMode').textContent = S.hpOn ? (S.heating ? 'Heating' : 'Cooling') : (P.winOpen !== 'closed' ? 'Paused' : 'Resting');
+  const parts = P.winOpen !== 'closed' ? ['Window open'] : [HV[S.hv]];
+  parts.push(S.dewLock ? 'floor dew-point lock' : S.valve > 2 ? `floor ${Math.round(S.valve)} %` : 'floor closed');
+  parts.push(S.fan ? `fan coil speed ${S.fan}` : 'fan coil off');
+  $('gModeS').textContent = parts.join(', ');
+  $('gSun').textContent = S.shadePos < 1 ? 'Awning in' : `${Math.round(S.shadePos)} % out`;
+  let sub;
+  if (S.windAlarm) sub = `Wind alarm at ${n1(P.wind)} m/s`;
+  else if (D.direct > 0) sub = `${Math.round(D.facadeIrr)} W/m² on the window` + (S.heating && P.shadeMode === 'thermal' ? ', kept in for free heat' : '');
+  else sub = D.up ? 'No direct sun on the window' : 'Sun is down';
+  $('gSunS').textContent = sub;
+  $('gEl').textContent = S.Eel.toFixed(1)+' kWh';
+  $('gElS').textContent = `€${(S.Eel*P.tariff).toFixed(2)} so far at €${P.tariff.toFixed(2)}/kWh`;
+  const useY = !!S.yday;
+  const v = useY ? savePct(S.yday.el, S.yday.bel) : savePct(S.Eel, S.Bel);
+  $('gSave').textContent = v === null ? '–' : fmtPct(v);
+  $('gSaveS').textContent = v === null ? 'Collecting today’s data'
+    : useY ? (v >= 0 ? `Yesterday, full day: ${(S.yday.bel - S.yday.el).toFixed(1)} kWh less` : 'Yesterday, full day')
+    : v >= 0 ? `Today so far, ${(S.Bel - S.Eel).toFixed(1)} kWh less` : 'Today so far, no saving yet';
+}
+
+/* ---------- views ---------- */
+let view = 'cust';
+function setView(v){
+  view = v;
+  $('app').className = v === 'eng' ? 'engview' : 'cust';
+  refreshSeg($('viewSeg'), () => view);
+  requestAnimationFrame(drawChart);
+}
+buildSeg($('viewSeg'), [['cust','Customer view'],['eng','Engineer view']], () => view, v => { viewByTour = false; setView(v); });
+const btnFull = $('btnFull');
+if (!document.fullscreenEnabled) btnFull.hidden = true;
+btnFull.addEventListener('click', () => {
+  const r = document.fullscreenElement ? document.exitFullscreen() : document.documentElement.requestFullscreen();
+  if (r && r.catch) r.catch(() => {});
+});
+document.addEventListener('fullscreenchange', () => { btnFull.textContent = document.fullscreenElement ? 'Exit full screen' : 'Full screen'; });
+
+/* ---------- device details on hover or tap ---------- */
+const ROLE = {
+  ws:'Measures outdoor temperature, sun and wind, and runs the sun-tracking logic for the awning.',
+  ip:'Links the KNX line to the building network and sends the time of day to every device.',
+  ufh:'Drives the floor loop valve, reports the slab temperature and blocks cooling near the dew point.',
+  ts:'Measures the room, holds the setpoints and decides how hard the floor and the fan coil work.',
+  fcu:'Fan coil behind a high-wall air vent: opens its water valve and switches fan speeds 1 to 3 on command.',
+  hp:'Gateway to the heat pump: demand, heat or cool mode, flow temperature, power and COP.',
+  aw:'Moves the awning motor to the commanded position and reports where it is.',
+  wc:'Magnetic contact on the window sash, wired to a binary input. It tells the room controller the moment the window opens or tilts.'
+};
+let tipId = null;
+function renderTip(){
+  const d = DEV[tipId];
+  const rows = GA.filter(g => g.src === tipId).slice(0, 6).map(g => {
+    const x = sent[g.ga];
+    return `<tr><td class="pa">${g.ga}</td><td>${g.name}</td><td><b>${x ? g.f(x.v) : '–'}</b></td></tr>`;
+  }).join('');
+  $('tip').innerHTML = `<div class="tt">${d.name}</div><div class="pa">Individual address ${d.pa}</div><p>${ROLE[tipId]}</p>${rows ? `<table>${rows}</table>` : ''}`;
+}
+function placeTip(){
+  const tip = $('tip'), host = $('sch').getBoundingClientRect(), r = $('dev-'+tipId).getBoundingClientRect();
+  const tw = tip.offsetWidth, th = tip.offsetHeight;
+  let x = r.right - host.left + 12;
+  if (x + tw > host.width - 8) x = r.left - host.left - tw - 12;
+  x = clamp(x, 8, Math.max(8, host.width - tw - 8));
+  const y = clamp(r.top - host.top - 6, 8, Math.max(8, host.height - th - 8));
+  tip.style.left = x+'px'; tip.style.top = y+'px';
+}
+function showTip(id){ tipId = id; const t = $('tip'); renderTip(); t.hidden = false; placeTip(); }
+function hideTip(){ $('tip').hidden = true; tipId = null; }
+for (const id in DEV){
+  const el = $('dev-'+id);
+  el.setAttribute('aria-label', DEV[id].name);
+  el.addEventListener('pointerenter', e => { if (e.pointerType === 'mouse') showTip(id); });
+  el.addEventListener('pointerleave', e => { if (e.pointerType === 'mouse') hideTip(); });
+  el.addEventListener('pointerdown', e => {
+    if (e.pointerType === 'mouse') return;
+    e.stopPropagation();
+    (tipId === id && !$('tip').hidden) ? hideTip() : showTip(id);
+  });
+}
+document.addEventListener('pointerdown', e => { if (e.pointerType !== 'mouse' && !e.target.closest('.dev')) hideTip(); });
+
+/* ---------- guided tour ---------- */
+const BASEP = {toutMean:12, toutSwing:5, rh:65, solarM2:260, facade:180, UAf:90, area:40, base:21, shift:0, winW:3.0, winH:1.8, glaz:'lowe', winOpen:'closed',
+  hcSel:'heat', hvSel:'auto', fcuEnable:true, wind:3, shadeMode:'thermal', shadeManual:0, month:1};
+const SUMMER = {month:8, toutMean:30, toutSwing:6, rh:62, solarM2:410, hcSel:'cool'};
+const FOCUS = {fcu:[5.9,0.16,2.4], wc:[2.07,0.05,2.3], ts:[0.02,2.6,1.55], win:[3.3,-0.1,1.3], awn:[3.3,-1.0,2.3], ws:[6.3,-0.12,3.45], ip:[0.05,4.67,2.3]};
+const SCENES = [
+  {t:'Winter morning', h:6.6, focus:'fcu', init:{Tr:18, Ts:19.5, heating:true},
+   text:'At 07:00 the time schedule switches the room from Night to Comfort. The floor loop opens first and the fan coil joins as a boost stage, so the room recovers from the night setback quickly. The heat pump sets its flow temperature from the outdoor sensor.'},
+  {t:'Sunny winter day', h:11.3, focus:'win', init:{Tr:20, Ts:21, heating:true},
+   text:'The sun is on the south window. Because the controller is heating, the awning stays retracted and the sunshine heats the room for free. The floor valve throttles back as the room reaches its setpoint.'},
+  {t:'Night setback', h:21.75, focus:'ts', init:{Tr:21, Ts:22, heating:true},
+   text:'At 22:00 the schedule drops the room to Night mode, 4 K lower. The floor loop closes and the warm slab keeps releasing its stored heat, so the room cools off slowly while the heat pump rests.'},
+  {t:'Window opened', h:9, focus:'wc', init:{Tr:21, Ts:21.5, heating:true}, after:{winOpen:'open'}, speed:60,
+   text:'Someone opens the window to air the room. The window contact tells the room controller at once, and it switches to building protection: the floor valve and the fan coil close and the heat pump stops, so no energy is wasted out of the window. Close it and comfort mode resumes.'},
+  {t:'Summer cooling', h:11, p:SUMMER, focus:'awn', init:{Tr:25.5, Ts:24.5, heating:false},
+   text:'In cooling mode the awning follows the sun and extends only as far as needed to shade the glass. The floor cools with water kept above the dew point to avoid condensation, and the fan coil handles the peaks.'},
+  {t:'Wind alarm', h:14, p:SUMMER, after:{wind:14}, speed:60, focus:'ws', init:{Tr:25.5, Ts:24.5, heating:false},
+   text:'Gusts reach 14 m/s. The weather station raises the wind alarm and the awning retracts straight away, overriding every other command. It stays in until the wind drops below 8 m/s.'},
+  {t:'Behind the scenes', keep:true, view:'eng', focus:'ip',
+   text:'Every action in this tour was a KNX telegram on the bus. The engineer view adds the group addresses with their data point types, the live bus monitor with raw values, and the calculations behind every figure.'}
+];
+const STEP_SEC = 22;
+let sceneIdx = 0, touring = false, stElapsed = 0, viewByTour = false, focusUntil = 0;
+
+function setFocus(key){
+  const w = FOCUS[key]; if (!w) return;
+  const q = prj(...w);
+  E.focus.setAttribute('cx', f1(q[0])); E.focus.setAttribute('cy', f1(q[1]));
+  E.focus.style.display = '';
+  focusUntil = performance.now() + 9000;
+}
+function refreshControls(){
+  syncSliders();
+  ['speedSeg','hcSeg','hvSeg','shSeg','winSeg','glzSeg'].forEach(id => refreshSeg($(id), {speedSeg:()=>P.speed, hcSeg:()=>P.hcSel, hvSeg:()=>P.hvSel, shSeg:()=>P.shadeMode, winSeg:()=>P.winOpen, glzSeg:()=>P.glaz}[id]));
+  syncWin();
+  $('fcuEn').checked = P.fcuEnable;
+  $('btnPlay').textContent = P.playing ? 'Pause' : 'Run';
+}
+function loadScene(i){
+  sceneIdx = clamp(i, 0, SCENES.length-1);
+  const sc = SCENES[sceneIdx];
+  if (!sc.keep){
+    Object.assign(P, BASEP, sc.p || {});
+    const init = sc.init;
+    const tgt = 14*86400 + sc.h*3600;
+    Object.assign(S, {t:tgt - 54*3600, Tr:init.Tr, Ts:init.Ts, Tf:init.Tr + 2, heating:init.heating, I:0, valve:0, fan:0,
+      hpOn:false, shadePos:0, shadeTarget:0, windAlarm:false, dewLock:false, Eth:0, Eel:0, Bel:0, yday:null, hist:[],
+      lastCtl:-1e9, lastHist:-1e9});
+    S.day = Math.floor(S.t/86400);
+    quiet = true;
+    while (S.t < tgt) step(30);
+    quiet = false;
+    if (sc.after) Object.assign(P, sc.after);
+    pulses.length = 0;
+  }
+  P.speed = sc.speed || 300;
+  P.playing = true;
+  if (sc.view){ setView(sc.view); viewByTour = true; }
+  else if (viewByTour){ setView('cust'); viewByTour = false; }
+  refreshControls();
+  immediate();
+  setFocus(sc.focus);
+  stElapsed = 0;
+  renderStory();
+  updateUI();
+}
+function renderStory(){
+  const sc = SCENES[sceneIdx];
+  $('stTitle').textContent = sc.t;
+  $('stText').textContent = sc.text;
+  $('steps').querySelectorAll('button').forEach((b,k) => b.setAttribute('aria-pressed', String(k === sceneIdx)));
+  $('stPrev').disabled = sceneIdx === 0;
+  $('stNext').disabled = sceneIdx === SCENES.length-1;
+  $('stPlay').textContent = touring ? 'Pause the tour' : (sceneIdx === SCENES.length-1 ? 'Play from the start' : 'Play the tour');
+  if (!touring) $('stBar').style.width = '0';
+}
+SCENES.forEach((sc,k) => {
+  const b = document.createElement('button');
+  b.type = 'button'; b.innerHTML = `<i>${k+1}</i>${sc.t}`;
+  b.addEventListener('click', () => loadScene(k));
+  $('steps').appendChild(b);
+});
+$('stPrev').addEventListener('click', () => loadScene(sceneIdx-1));
+$('stNext').addEventListener('click', () => loadScene(sceneIdx+1));
+$('stPlay').addEventListener('click', () => {
+  if (touring){ touring = false; renderStory(); return; }
+  touring = true;
+  if (sceneIdx === SCENES.length-1) loadScene(0); else { stElapsed = 0; renderStory(); }
+});
+// Taking the controls pauses the tour so the visitor stays in charge
+$('side').addEventListener('input', () => { if (touring){ touring = false; renderStory(); } });
+$('side').addEventListener('click', e => { if (touring && e.target.closest('button')){ touring = false; renderStory(); } });
+function tourTick(rdt){
+  if (!touring) return;
+  stElapsed += rdt;
+  $('stBar').style.width = Math.min(100, stElapsed/STEP_SEC*100).toFixed(1)+'%';
+  if (stElapsed >= STEP_SEC){
+    if (sceneIdx < SCENES.length-1) loadScene(sceneIdx+1);
+    else { touring = false; renderStory(); }
+  }
+}
+
+/* ---------- start ---------- */
+syncSliders();
+loadScene(0);
+let last = performance.now(), lastUI = 0;
+function frame(now){
+  const rdt = Math.min(0.1, (now-last)/1000); last = now;
+  if (P.playing){
+    const adv = P.speed*rdt;
+    const n = Math.max(1, Math.ceil(adv/10));
+    for (let i=0;i<n;i++) step(adv/n);
+  }
+  tourTick(rdt);
+  animate(rdt, now);
+  if (now - lastUI > 120){ updateUI(); lastUI = now; }
+  requestAnimationFrame(frame);
+}
+updateUI();
+requestAnimationFrame(frame);
+})();
+</script>
+
+
+</html>
